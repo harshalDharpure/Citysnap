@@ -262,10 +262,15 @@ class ThoughtRepository(
             .whereEqualTo("uid", uid)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
+                    Log.e(TAG, "feeledThoughtIdsFlow($uid) error", error)
                     trySend(emptySet())
                     return@addSnapshotListener
                 }
-                trySend(snapshot?.documents?.mapNotNull { it.getString("thoughtId") }?.toSet().orEmpty())
+                val ids = snapshot?.documents?.mapNotNull { doc ->
+                    doc.getString("thoughtId")?.takeIf { it.isNotBlank() }
+                        ?: doc.reference.parent?.parent?.id
+                }?.toSet().orEmpty()
+                trySend(ids)
             }
         awaitClose { reg.remove() }
     }

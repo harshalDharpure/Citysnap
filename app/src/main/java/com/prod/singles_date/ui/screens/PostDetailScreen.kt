@@ -145,8 +145,9 @@ fun PostDetailScreen(
                                 thoughtViewModel.incrementShareCount(t.id)
                             },
                             onComment = { },
-                            showComments = false,
-                            showFeelButton = isLoggedIn,
+                            showComments = true,
+                            showFeelButton = true,
+                            onOpenDetail = null,
                             onEdit = null,
                             onDelete = null,
                             onReport = if (isLoggedIn && currentUid != null && t.authorId != currentUid) {
@@ -243,14 +244,14 @@ fun PostDetailScreen(
                         }
                     } else {
                         item {
-                            Text(
-                                text = "Sign in to comment",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier
-                                    .padding(16.dp)
-                                    .clickable(onClick = onRequireLogin),
-                            )
+                            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                Text(
+                                    text = "Sign in to join the conversation",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.clickable(onClick = onRequireLogin),
+                                )
+                            }
                         }
                     }
                 }

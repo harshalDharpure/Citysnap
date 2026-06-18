@@ -126,10 +126,10 @@ fun PublicUserProfileScreen(
                     onCopy = {},
                     onShareImage = {},
                     onWhatsApp = {},
-                    onComment = onRequireLogin,
+                    onComment = { onOpenPost(thought.id) },
                     onEdit = null,
-                    showComments = currentUid != null,
-                    showFeelButton = currentUid != null,
+                    showComments = true,
+                    showFeelButton = true,
                     onOpenDetail = { onOpenPost(thought.id) },
                 )
             }

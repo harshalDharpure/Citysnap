@@ -53,7 +53,6 @@ import com.prod.singles_date.model.AppCity
 import com.prod.singles_date.model.AppLocality
 import com.prod.singles_date.model.User
 import com.prod.singles_date.ui.components.CityMoodCard
-import com.prod.singles_date.ui.components.CommentsSheet
 import com.prod.singles_date.ui.components.EditDialog
 import com.prod.singles_date.ui.components.FeedFilterBar
 import com.prod.singles_date.ui.components.MainBottomBar
@@ -155,7 +154,6 @@ fun FeedScreen(
     var editThoughtId by remember { mutableStateOf<String?>(null) }
     var pendingDeleteId by remember { mutableStateOf<String?>(null) }
     var reportThoughtId by remember { mutableStateOf<String?>(null) }
-    var reportCommentTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
     val isOnline = remember { mutableStateOf(NetworkMonitor.isOnline(context)) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -469,12 +467,9 @@ fun FeedScreen(
                                 shareThoughtToWhatsApp(context, thought.text, thought.id, thought.city.ifBlank { activeCity })
                                 thoughtViewModel.incrementShareCount(thought.id)
                             },
-                            onComment = {
-                                if (isLoggedIn) thoughtViewModel.setCommentsTarget(thought.id)
-                                else onRequireLogin()
-                            },
-                            showComments = isLoggedIn,
-                            showFeelButton = isLoggedIn,
+                            onComment = { onOpenPost(thought.id) },
+                            showComments = true,
+                            showFeelButton = true,
                             onEdit = if (isLoggedIn && fu != null && thought.authorId == fu.uid) {
                                 { editThoughtId = thought.id }
                             } else null,
@@ -549,23 +544,6 @@ fun FeedScreen(
             )
         }
 
-        val activeThoughtId = thoughtViewModel.activeCommentsThoughtId.collectAsStateWithLifecycle().value
-        val comments = thoughtViewModel.activeComments.collectAsStateWithLifecycle().value
-        if (!activeThoughtId.isNullOrBlank() && isLoggedIn && fu != null && user != null) {
-            CommentsSheet(
-                currentUserName = user.name,
-                comments = comments,
-                currentUserId = fu.uid,
-                onDismiss = { thoughtViewModel.setCommentsTarget(null) },
-                onPostComment = { body ->
-                    thoughtViewModel.addComment(activeThoughtId, fu.uid, user.name, body)
-                },
-                onReportComment = { commentId ->
-                    reportCommentTarget = activeThoughtId to commentId
-                },
-            )
-        }
-
         val etId = editThoughtId
         val et = remember(etId, thoughts) { etId?.let { id -> thoughts.find { it.id == id } } }
         if (et != null && isLoggedIn && fu != null && et.authorId == fu.uid) {
@@ -625,19 +603,6 @@ fun FeedScreen(
                 onConfirm = { reason ->
                     thoughtViewModel.reportThought(reportId, fu.uid, reason)
                     reportThoughtId = null
-                },
-            )
-        }
-
-        val commentReport = reportCommentTarget
-        if (commentReport != null && fu != null) {
-            val (thoughtId, commentId) = commentReport
-            ReportReasonDialog(
-                title = "Report comment",
-                onDismiss = { reportCommentTarget = null },
-                onConfirm = { reason ->
-                    thoughtViewModel.reportComment(thoughtId, commentId, fu.uid, reason)
-                    reportCommentTarget = null
                 },
             )
         }

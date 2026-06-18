@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -198,17 +199,31 @@ class ThoughtViewModel(
     }
 
     private val _currentUid = MutableStateFlow<String?>(null)
+    /** Immediate UI overrides until Firestore listener catches up. */
+    private val _feelOverrides = MutableStateFlow<Map<String, Boolean>>(emptyMap())
 
     fun setCurrentUid(uid: String?) {
         _currentUid.value = uid
+        if (uid.isNullOrBlank()) {
+            _feelOverrides.value = emptyMap()
+        }
     }
 
     val feeledThoughtIds: StateFlow<Set<String>> =
-        _currentUid
-            .flatMapLatest { uid ->
+        combine(
+            _currentUid.flatMapLatest { uid ->
                 if (uid.isNullOrBlank()) kotlinx.coroutines.flow.flowOf(emptySet())
                 else repository.feeledThoughtIdsFlow(uid)
+            },
+            _feelOverrides,
+        ) { fromServer, overrides ->
+            buildSet {
+                addAll(fromServer)
+                overrides.forEach { (thoughtId, felt) ->
+                    if (felt) add(thoughtId) else remove(thoughtId)
+                }
             }
+        }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
     val savedThoughtIds: StateFlow<Set<String>> =
@@ -280,23 +295,21 @@ class ThoughtViewModel(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val rankedThoughtsRaw: StateFlow<List<Thought>> =
-        combine(
-            thoughts,
-            hiddenThoughtIds,
-            blockedUids,
-            _selectedCity,
-            _selectedLocality,
-            _feedSortMode,
-        ) { thoughtList, hidden, blocked, city, userLocality, sortMode ->
-            FeedRankingContext(
-                thoughts = thoughtList,
-                hidden = hidden,
-                blocked = blocked,
-                city = city,
-                userLocality = userLocality,
-                sortMode = sortMode,
-            )
-        }
+        thoughts
+            .combine(hiddenThoughtIds) { thoughtList, hidden ->
+                FeedRankingContext(
+                    thoughts = thoughtList,
+                    hidden = hidden,
+                    blocked = emptySet(),
+                    city = "",
+                    userLocality = "",
+                    sortMode = FeedSortMode.NEW,
+                )
+            }
+            .combine(blockedUids) { ctx, blocked -> ctx.copy(blocked = blocked) }
+            .combine(_selectedCity) { ctx, city -> ctx.copy(city = city) }
+            .combine(_selectedLocality) { ctx, userLocality -> ctx.copy(userLocality = userLocality) }
+            .combine(_feedSortMode) { ctx, sortMode -> ctx.copy(sortMode = sortMode) }
             .map { ctx -> rankVisibleThoughts(ctx) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -339,8 +352,21 @@ class ThoughtViewModel(
     }
 
     fun onFeelThis(thoughtId: String, uid: String) {
-        if (uid.isBlank()) return
-        viewModelScope.launch { runCatching { repository.toggleFeel(thoughtId, uid) } }
+        if (uid.isBlank() || thoughtId.isBlank()) return
+        viewModelScope.launch {
+            val currentlyFeeled = thoughtId in feeledThoughtIds.value
+            val targetFeeled = !currentlyFeeled
+            _feelOverrides.update { it + (thoughtId to targetFeeled) }
+            runCatching { repository.toggleFeel(thoughtId, uid) }
+                .onSuccess { actualFeeled ->
+                    if (actualFeeled != targetFeeled) {
+                        _feelOverrides.update { it + (thoughtId to actualFeeled) }
+                    }
+                }
+                .onFailure {
+                    _feelOverrides.update { it - thoughtId }
+                }
+        }
     }
 
     fun toggleSaveThought(uid: String, thoughtId: String, save: Boolean) {

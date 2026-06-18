@@ -38,6 +38,7 @@ import com.prod.singles_date.model.AppLocality
 import com.prod.singles_date.model.PostType
 import com.prod.singles_date.model.Thought
 import com.prod.singles_date.model.ThoughtCategory
+import com.prod.singles_date.ui.theme.FeelActive
 import com.prod.singles_date.ui.theme.feedDividerColor
 import com.prod.singles_date.util.FeedRanking
 import java.util.concurrent.TimeUnit
@@ -224,28 +225,23 @@ fun ThoughtCard(
                     Icon(
                         imageVector = if (hasFeeled) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                         contentDescription = "Feel this",
-                        tint = if (hasFeeled) {
-                            MaterialTheme.colorScheme.secondary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                        tint = if (hasFeeled) FeelActive else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(22.dp),
                     )
                 }
                 Text(
                     text = if (thought.feelCount > 0) thought.feelCount.toString() else "",
                     style = MaterialTheme.typography.labelLarge,
-                    color = if (hasFeeled) {
-                        MaterialTheme.colorScheme.secondary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
+                    color = if (hasFeeled) FeelActive else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(end = 4.dp),
                 )
             }
 
             if (showComments) {
-                IconButton(onClick = onComment) {
+                IconButton(onClick = {
+                    if (onOpenDetail != null) onOpenDetail()
+                    else onComment()
+                }) {
                     Text(
                         text = "💬",
                         style = MaterialTheme.typography.titleMedium,
