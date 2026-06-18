@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Generated share-card images live in cache/share_cards and are exposed
+         to other apps (Instagram, WhatsApp, etc.) through the FileProvider. -->
+    <cache-path name="share_cards" path="share_cards/" />
+    <cache-path name="camera_captures" path="camera_captures/" />
+</paths>

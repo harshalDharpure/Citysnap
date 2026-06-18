@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Deep night gradient — matches the app's dark, late-night mood -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="0"
+                android:endX="108"
+                android:endY="108">
+                <item android:offset="0" android:color="#FF0A0A12" />
+                <item android:offset="0.45" android:color="#FF141428" />
+                <item android:offset="1" android:color="#FF1E1A3A" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Soft violet glow behind the icon mark -->
+    <path
+        android:pathData="M54,54m-36,0a36,36 0,1 1,72 0a36,36 0,1 1,-72 0"
+        android:fillColor="#228B7CF8" />
+
+    <!-- Subtle star specks -->
+    <path
+        android:pathData="M18,22m-1.2,0a1.2,1.2 0,1 1,2.4 0a1.2,1.2 0,1 1,-2.4 0"
+        android:fillColor="#55FFFFFF" />
+    <path
+        android:pathData="M86,18m-1,0a1,1 0,1 1,2 0a1,1 0,1 1,-2 0"
+        android:fillColor="#44FFFFFF" />
+    <path
+        android:pathData="M92,68m-1.4,0a1.4,1.4 0,1 1,2.8 0a1.4,1.4 0,1 1,-2.8 0"
+        android:fillColor="#33FFFFFF" />
+    <path
+        android:pathData="M14,78m-1,0a1,1 0,1 1,2 0a1,1 0,1 1,-2 0"
+        android:fillColor="#44FFFFFF" />
+    <path
+        android:pathData="M72,12m-0.8,0a0.8,0.8 0,1 1,1.6 0a0.8,0.8 0,1 1,-1.6 0"
+        android:fillColor="#55FFFFFF" />
+</vector>

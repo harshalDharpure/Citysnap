@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Citysnap</string>
+    <string name="welcome_subtitle">अपने शहर की असली बातें देखें।</string>
+    <string name="welcome_explainer_1">📸 Snaps = आपके शहर की फोटो पोस्ट (स्टोरी नहीं)।</string>
+    <string name="welcome_explainer_2">📍 शहर और एरिया चुनें — लोकल फीड मिलेगा।</string>
+    <string name="welcome_explainer_3">👤 पोस्ट पर आपका असली नाम। बिना साइन-इन ब्राउज़ करें।</string>
+    <string name="search_hint">पोस्ट खोजें…</string>
+    <string name="onboarding_enter">Citysnap खोलें</string>
+</resources>

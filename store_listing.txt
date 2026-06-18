@@ -1,0 +1,22 @@
+Hoght — Play Store Listing
+============================
+
+Short description:
+Discover what people in your city are really thinking.
+
+Tagline:
+The Voice of Your City.
+
+Full description:
+See what your city is really thinking.
+
+Hoght is where Bangalore (and soon more cities) shares honest thoughts about work, rent, traffic, relationships, college, startups, and local life — anonymously.
+
+• City thoughts from people near you
+• Work life, relationships, college, startup life, local issues
+• React with "I feel this" when something resonates
+• Comment and join the conversation
+• Share thoughts to WhatsApp with one tap
+
+Categories covered:
+City thoughts · Work life · Relationships · College life · Startup life · Local issues

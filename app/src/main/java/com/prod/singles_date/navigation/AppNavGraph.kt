@@ -1,0 +1,374 @@
+package com.prod.singles_date.navigation
+
+import androidx.activity.ComponentActivity
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import com.prod.singles_date.data.LocalPreferences
+import com.prod.singles_date.model.AppLocality
+import com.prod.singles_date.messaging.PendingNotification
+import com.prod.singles_date.model.ThemeMode
+import com.prod.singles_date.ui.screens.BlockedUsersScreen
+import com.prod.singles_date.ui.screens.CitySelectScreen
+import com.prod.singles_date.ui.screens.FeedScreen
+import com.prod.singles_date.ui.screens.LegalPage
+import com.prod.singles_date.ui.screens.LegalScreen
+import com.prod.singles_date.ui.screens.LoginScreen
+import com.prod.singles_date.ui.screens.NotificationSettingsScreen
+import com.prod.singles_date.ui.screens.PostDetailScreen
+import com.prod.singles_date.ui.screens.ProfileScreen
+import com.prod.singles_date.ui.screens.SignupScreen
+import com.prod.singles_date.ui.screens.SplashScreen
+import com.prod.singles_date.ui.screens.WelcomeScreen
+import com.prod.singles_date.util.AppLinks
+import com.prod.singles_date.viewmodel.AuthViewModel
+import com.prod.singles_date.viewmodel.ProfileViewModel
+import com.prod.singles_date.viewmodel.SessionState
+import com.prod.singles_date.viewmodel.ThoughtViewModel
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
+
+@Composable
+fun AppNavGraph(
+    modifier: Modifier = Modifier,
+    pendingDeepLink: AppLinks.DeepLink? = null,
+    onDeepLinkHandled: () -> Unit = {},
+    pendingNotification: PendingNotification? = null,
+    onNotificationHandled: () -> Unit = {},
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    onThemeModeChange: (ThemeMode) -> Unit = {},
+) {
+    val owner = LocalContext.current as ComponentActivity
+    val context = LocalContext.current
+    val authViewModel: AuthViewModel = viewModel(owner)
+    val thoughtViewModel: ThoughtViewModel = viewModel(owner)
+    val profileViewModel: ProfileViewModel = viewModel(owner)
+    val prefs = remember { LocalPreferences(context) }
+
+    val navController = rememberNavController()
+    val pendingOpenPostId by thoughtViewModel.pendingOpenPostId.collectAsStateWithLifecycle()
+
+    LaunchedEffect(pendingOpenPostId) {
+        val thoughtId = pendingOpenPostId ?: return@LaunchedEffect
+        val route = navController.currentDestination?.route
+        if (route == Routes.Splash || route == Routes.Welcome || route == Routes.Login) return@LaunchedEffect
+        navController.navigate(Routes.postDetail(thoughtId))
+        thoughtViewModel.clearPendingOpenPostId()
+    }
+
+    LaunchedEffect(pendingNotification) {
+        val n = pendingNotification ?: return@LaunchedEffect
+        when {
+            n.isDailyPrompt -> thoughtViewModel.setPendingPostPrompt(n.promptText)
+            n.isThoughtDeepLink -> thoughtViewModel.setPendingOpenPostId(n.thoughtId)
+            n.type == "locality_topic" && n.promptText.isNotBlank() ->
+                thoughtViewModel.setPendingPostPrompt(n.promptText)
+        }
+        onNotificationHandled()
+    }
+
+    LaunchedEffect(pendingDeepLink) {
+        when (val link = pendingDeepLink) {
+            null -> Unit
+            is AppLinks.DeepLink.Thought -> {
+                thoughtViewModel.setPendingOpenPostId(link.thoughtId)
+                onDeepLinkHandled()
+            }
+            is AppLinks.DeepLink.Invite -> {
+                prefs.setPendingReferralCode(link.referralCode)
+                authViewModel.setPendingReferralCode(link.referralCode)
+                onDeepLinkHandled()
+            }
+        }
+    }
+
+    fun needsOnboarding(city: String, locality: String): Boolean {
+        if (city.isBlank()) return true
+        val requiresLocality = AppLocality.localitiesForCity(city).isNotEmpty()
+        return requiresLocality && locality.isBlank()
+    }
+
+    NavHost(
+        navController = navController,
+        startDestination = Routes.Splash,
+        modifier = modifier,
+    ) {
+        composable(Routes.Splash) {
+            val session = authViewModel.session.collectAsStateWithLifecycle().value
+
+            SplashScreen()
+
+            LaunchedEffect(session) {
+                when (session) {
+                    SessionState.Loading -> Unit
+                    is SessionState.LoggedIn -> {
+                        val city = session.userProfile?.city.orEmpty()
+                        val locality = session.userProfile?.locality.orEmpty()
+                        val destination = if (needsOnboarding(city, locality)) {
+                            Routes.CitySelect
+                        } else {
+                            Routes.Feed
+                        }
+                        navController.navigate(destination) {
+                            popUpTo(Routes.Splash) { inclusive = true }
+                        }
+                    }
+                    SessionState.LoggedOut -> {
+                        val guestCity = prefs.getGuestCity()
+                        val guestLocality = prefs.getGuestLocality()
+                        val destination = when {
+                            needsOnboarding(guestCity, guestLocality) -> Routes.Welcome
+                            else -> Routes.Feed
+                        }
+                        navController.navigate(destination) {
+                            popUpTo(Routes.Splash) { inclusive = true }
+                        }
+                    }
+                }
+            }
+        }
+
+        composable(Routes.Welcome) {
+            val profile by authViewModel.currentUser.collectAsStateWithLifecycle()
+            val isLoggedIn = authViewModel.isLoggedIn.collectAsStateWithLifecycle().value
+
+            LaunchedEffect(isLoggedIn, profile) {
+                if (!isLoggedIn) return@LaunchedEffect
+                val city = profile?.city.orEmpty()
+                val locality = profile?.locality.orEmpty()
+                val destination = if (needsOnboarding(city, locality)) Routes.CitySelect else Routes.Feed
+                navController.navigate(destination) {
+                    popUpTo(Routes.Welcome) { inclusive = true }
+                }
+            }
+
+            WelcomeScreen(
+                authViewModel = authViewModel,
+                onNavigateToLogin = { navController.navigate(Routes.Login) },
+                onNavigateToSignUp = { navController.navigate(Routes.Signup) },
+                onNavigateToCityBrowse = { navController.navigate(Routes.CitySelect) },
+            )
+        }
+
+        composable(Routes.Login) {
+            val profile by authViewModel.currentUser.collectAsStateWithLifecycle()
+            val isLoggedIn = authViewModel.isLoggedIn.collectAsStateWithLifecycle().value
+
+            LaunchedEffect(isLoggedIn, profile) {
+                if (!isLoggedIn) return@LaunchedEffect
+                val city = profile?.city.orEmpty()
+                val locality = profile?.locality.orEmpty()
+                val destination = if (needsOnboarding(city, locality)) Routes.CitySelect else Routes.Feed
+                if (navController.previousBackStackEntry != null) {
+                    if (destination == Routes.CitySelect) {
+                        navController.navigate(Routes.CitySelect) {
+                            popUpTo(Routes.Login) { inclusive = true }
+                        }
+                    } else {
+                        navController.popBackStack()
+                    }
+                } else {
+                    navController.navigate(destination) {
+                        popUpTo(Routes.Welcome) { inclusive = true }
+                    }
+                }
+            }
+
+            LoginScreen(
+                authViewModel = authViewModel,
+                onNavigateToSignUp = { navController.navigate(Routes.Signup) },
+                onLoggedIn = { /* handled by LaunchedEffect above */ },
+            )
+        }
+
+        composable(Routes.Signup) {
+            val profile by authViewModel.currentUser.collectAsStateWithLifecycle()
+            val isLoggedIn = authViewModel.isLoggedIn.collectAsStateWithLifecycle().value
+
+            LaunchedEffect(isLoggedIn, profile) {
+                if (!isLoggedIn) return@LaunchedEffect
+                navController.navigate(Routes.CitySelect) {
+                    popUpTo(Routes.Welcome) { inclusive = true }
+                }
+            }
+
+            SignupScreen(
+                authViewModel = authViewModel,
+                onNavigateToLogin = { navController.popBackStack() },
+                onSignedUp = { /* handled by LaunchedEffect above */ },
+            )
+        }
+
+        composable(Routes.CitySelect) {
+            val isLoggedIn = authViewModel.isLoggedIn.collectAsStateWithLifecycle().value
+            val isBusy = authViewModel.isBusy.collectAsStateWithLifecycle().value
+
+            CitySelectScreen(
+                isBusy = isBusy,
+                onContinue = { city, locality ->
+                    prefs.saveGuestOnboarding(city, locality)
+                    thoughtViewModel.setSelectedCity(city)
+                    thoughtViewModel.setSelectedLocality(locality)
+                    if (isLoggedIn) {
+                        authViewModel.saveOnboarding(city, locality) {
+                            navController.navigate(Routes.Feed) {
+                                popUpTo(Routes.CitySelect) { inclusive = true }
+                            }
+                        }
+                    } else {
+                        navController.navigate(Routes.Feed) {
+                            popUpTo(Routes.CitySelect) { inclusive = true }
+                        }
+                    }
+                },
+            )
+        }
+
+        composable(Routes.Feed) {
+            val profile by authViewModel.currentUser.collectAsStateWithLifecycle()
+            val isLoggedIn = authViewModel.isLoggedIn.collectAsStateWithLifecycle().value
+
+            LaunchedEffect(isLoggedIn, profile?.city, profile?.locality) {
+                if (!isLoggedIn) return@LaunchedEffect
+                // Prefer Firestore profile; fall back to prefs saved during onboarding
+                // so we don't bounce back before the profile listener catches up.
+                val city = profile?.city?.takeIf { it.isNotBlank() } ?: prefs.getGuestCity()
+                val locality = profile?.locality?.takeIf { it.isNotBlank() } ?: prefs.getGuestLocality()
+                if (needsOnboarding(city, locality)) {
+                    navController.navigate(Routes.CitySelect)
+                }
+            }
+
+            LaunchedEffect(isLoggedIn, profile?.city, profile?.locality) {
+                val city = profile?.city?.takeIf { it.isNotBlank() } ?: prefs.getGuestCity()
+                val locality = profile?.locality?.takeIf { it.isNotBlank() } ?: prefs.getGuestLocality()
+                if (city.isNotBlank()) thoughtViewModel.setSelectedCity(city)
+                thoughtViewModel.setSelectedLocality(locality)
+            }
+
+            LaunchedEffect(Unit) {
+                thoughtViewModel.setFeedLocalityFilter(prefs.getFeedLocalityFilter())
+                prefs.setFeedCategoryFilter("")
+            }
+
+            FeedScreen(
+                authViewModel = authViewModel,
+                thoughtViewModel = thoughtViewModel,
+                onOpenProfile = {
+                    if (isLoggedIn) navController.navigate(Routes.Profile)
+                    else navController.navigate(Routes.Login)
+                },
+                onRequireLogin = { navController.navigate(Routes.Login) },
+                onChangeCity = { navController.navigate(Routes.CitySelect) },
+                onOpenPost = { thoughtId -> navController.navigate(Routes.postDetail(thoughtId)) },
+            )
+        }
+
+        composable(
+            route = Routes.PostDetail,
+            arguments = listOf(navArgument("thoughtId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val thoughtId = backStackEntry.arguments?.getString("thoughtId").orEmpty()
+            val profile by authViewModel.currentUser.collectAsStateWithLifecycle()
+            val isLoggedIn = authViewModel.isLoggedIn.collectAsStateWithLifecycle().value
+            val fu = authViewModel.firebaseUser.collectAsStateWithLifecycle().value
+            val activeCity = profile?.city?.takeIf { it.isNotBlank() } ?: prefs.getGuestCity()
+            val activeLocality = profile?.locality?.takeIf { it.isNotBlank() } ?: prefs.getGuestLocality()
+            val user = if (fu != null) {
+                profile ?: com.prod.singles_date.model.User(
+                    uid = fu.uid,
+                    name = fu.email.orEmpty().substringBefore('@').ifBlank { "You" },
+                    email = fu.email.orEmpty(),
+                )
+            } else null
+
+            PostDetailScreen(
+                thoughtId = thoughtId,
+                thoughtViewModel = thoughtViewModel,
+                currentUser = user,
+                currentUid = fu?.uid,
+                isLoggedIn = isLoggedIn,
+                activeCity = activeCity,
+                activeLocality = activeLocality,
+                onBack = { navController.popBackStack() },
+                onRequireLogin = { navController.navigate(Routes.Login) },
+            )
+        }
+
+        composable(Routes.BlockedUsers) {
+            val fu = authViewModel.firebaseUser.collectAsStateWithLifecycle().value
+            if (fu == null) {
+                LaunchedEffect(Unit) { navController.popBackStack() }
+            } else {
+                BlockedUsersScreen(
+                    thoughtViewModel = thoughtViewModel,
+                    currentUid = fu.uid,
+                    onBack = { navController.popBackStack() },
+                )
+            }
+        }
+
+        composable(Routes.NotificationSettings) {
+            val profile by authViewModel.currentUser.collectAsStateWithLifecycle()
+            val fu = authViewModel.firebaseUser.collectAsStateWithLifecycle().value
+            NotificationSettingsScreen(
+                onBack = { navController.popBackStack() },
+                uid = fu?.uid,
+                serverNotifyFeels = profile?.notifyFeels,
+                serverNotifyComments = profile?.notifyComments,
+                serverNotifyPrompts = profile?.notifyPrompts,
+                onUpdatePrefs = { feels, comments, prompts ->
+                    authViewModel.updateNotificationPrefs(feels, comments, prompts)
+                },
+            )
+        }
+
+        composable(Routes.LegalGuidelines) {
+            LegalScreen(page = LegalPage.Guidelines, onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.LegalPrivacy) {
+            LegalScreen(page = LegalPage.Privacy, onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.Profile) {
+            ProfileScreen(
+                authViewModel = authViewModel,
+                profileViewModel = profileViewModel,
+                onBack = { navController.popBackStack() },
+                onLoggedOut = {
+                    val guestCity = prefs.getGuestCity()
+                    val guestLocality = prefs.getGuestLocality()
+                    val destination = if (needsOnboarding(guestCity, guestLocality)) {
+                        Routes.Welcome
+                    } else {
+                        Routes.Feed
+                    }
+                    navController.navigate(destination) {
+                        popUpTo(Routes.Feed) { inclusive = true }
+                    }
+                },
+                onChangeCity = { navController.navigate(Routes.CitySelect) },
+                onOpenBlockedUsers = { navController.navigate(Routes.BlockedUsers) },
+                onOpenNotificationSettings = { navController.navigate(Routes.NotificationSettings) },
+                onOpenGuidelines = { navController.navigate(Routes.LegalGuidelines) },
+                onOpenPrivacy = { navController.navigate(Routes.LegalPrivacy) },
+                onSnap = {
+                    thoughtViewModel.requestOpenComposer()
+                    navController.popBackStack()
+                },
+                onNavigateHome = { navController.popBackStack() },
+                themeMode = themeMode,
+                onThemeModeChange = onThemeModeChange,
+            )
+        }
+    }
+}

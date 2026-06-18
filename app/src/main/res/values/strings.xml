@@ -1,0 +1,21 @@
+<resources>
+    <string name="app_name">Citysnap</string>
+    <string name="app_tagline">Discover what people in your city are really thinking.</string>
+    <string name="app_tagline_splash">Real thoughts. Real cities. Real people.</string>
+    <string name="welcome_subtitle">Discover what people in your city are really thinking.</string>
+    <string name="signup_title">Join Citysnap</string>
+    <string name="signup_subtitle">Read real thoughts, opinions, and everyday moments from people around you. Share with your real name — no followers, no pressure.</string>
+    <string name="login_welcome">Welcome back</string>
+    <string name="onboarding_city_hint">See what people in your city are really thinking — work, life, relationships, rent, traffic, and more.</string>
+    <string name="onboarding_enter">Enter Citysnap</string>
+    <string name="premium_name">Citysnap Premium</string>
+    <string name="share_from">from Citysnap</string>
+    <string name="share_invite">Join me on Citysnap — discover what your city is really thinking.</string>
+    <string name="notification_channel">Citysnap</string>
+    <string name="welcome_explainer_1">📸 Snaps are photo posts from your city — not stories.</string>
+    <string name="welcome_explainer_2">📍 Pick your city and area to see local posts.</string>
+    <string name="welcome_explainer_3">👤 Posts show your real name. Guests can browse; sign in to post.</string>
+    <string name="search_hint">Search posts…</string>
+    <string name="legal_guidelines_body">Citysnap Community Guidelines\n\nBe respectful. Post about your city, locality, and daily life.\n\nNot allowed:\n• Harassment, hate speech, or threats\n• Sexual or violent content\n• Spam or misleading posts\n• Sharing others\' private information\n\nSnaps (photos) must be appropriate for a public local feed. We may remove content and suspend accounts that break these rules.\n\nReport posts or comments you believe violate these guidelines. Block users you don\'t want to see.\n\nContact: support@citysnap.app</string>
+    <string name="legal_privacy_body">Citysnap Privacy Policy\n\nWhat we collect:\n• Account: name, email (from sign-up or Google)\n• Profile: city and locality you choose (not GPS)\n• Posts: text, photos you upload, and your display name on posts\n• Device: push notification token\n\nHow we use it:\n• Show your local city feed\n• Display your name on posts and comments\n• Send notifications you opt into\n\nYour photos are stored securely on Google Firebase Storage. You can delete your account anytime from Profile — this removes your posts and profile data.\n\nWe do not sell your personal data.\n\nContact: privacy@citysnap.app</string>
+</resources>

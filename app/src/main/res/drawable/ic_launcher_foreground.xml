@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Outer halo ring -->
+    <path
+        android:pathData="M54,54m-30,0a30,30 0,1 1,60 0a30,30 0,1 1,-60 0"
+        android:fillColor="#00000000"
+        android:strokeColor="#33FFFFFF"
+        android:strokeWidth="1.2" />
+
+    <!-- Thought bubble body -->
+    <path
+        android:pathData="M30,52 C30,36 40,28 54,28 C68,28 78,36 78,52 C78,63 70,70 58,72 C50,73 42,76 36,84 C34,80 32,74 30,68 C30,64 30,58 30,52 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="30"
+                android:startY="28"
+                android:endX="78"
+                android:endY="72">
+                <item android:offset="0" android:color="#FFFFFFFF" />
+                <item android:offset="1" android:color="#FFE8E4FF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Bubble highlight (gloss) -->
+    <path
+        android:pathData="M38,40 C42,34 48,32 54,32 C60,32 66,35 70,40 C66,37 60,35 54,35 C48,35 42,37 38,40 Z"
+        android:fillColor="#66FFFFFF" />
+
+    <!-- Three dots = a quiet thought forming -->
+    <path
+        android:pathData="M44,52m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0"
+        android:fillColor="#FF1E1A3A" />
+    <path
+        android:pathData="M54,52m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0"
+        android:fillColor="#FF1E1A3A" />
+    <path
+        android:pathData="M64,52m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0"
+        android:fillColor="#FF1E1A3A" />
+
+    <!-- Small moon accent — late-night thoughts -->
+    <path
+        android:pathData="M68,34 C68,30 72,27 76,27 C74,29 73,32 74,35 C75,38 77,40 80,41 C77,43 73,42 70,39 C68,37 68,35 68,34 Z"
+        android:fillColor="#FF8B7CF8" />
+</vector>
