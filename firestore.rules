@@ -42,8 +42,15 @@ service cloud.firestore {
     }
 
     function validPostContent(data) {
-      return (data.text is string && data.text.size() > 0 && data.text.size() <= 250)
-        || hasValidImages(data);
+      let pt = data.get('postType', 'snap');
+      let maxLen = pt == 'note' ? 800 : 250;
+      return (data.text is string && data.text.size() > 0 && data.text.size() <= maxLen)
+        || (pt == 'snap' && hasValidImages(data));
+    }
+
+    function validPostType(data) {
+      let pt = data.get('postType', 'snap');
+      return pt == 'snap' || pt == 'note';
     }
 
     function changedKeys() {
@@ -103,6 +110,22 @@ service cloud.firestore {
           && get(/databases/$(database)/documents/users/$(uid)).data.get('isPremium', false) == true;
         allow update: if false;
       }
+
+      match /notifications/{notificationId} {
+        allow read: if isUser(uid);
+        allow update: if isUser(uid)
+          && changedKeys().hasOnly(['read'])
+          && request.resource.data.read is bool;
+        allow create, delete: if false;
+      }
+    }
+
+    match /sponsor_leads/{leadId} {
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.businessName is string
+        && request.resource.data.email is string;
+      allow read, update, delete: if false;
     }
 
     match /reports/{reportId} {
@@ -130,8 +153,17 @@ service cloud.firestore {
         && request.resource.data.authorName.size() > 0
         && request.resource.data.authorName.size() <= 60
         && validPostContent(request.resource.data)
+        && validPostType(request.resource.data)
         && (!request.resource.data.keys().hasAny(['text'])
-          || (request.resource.data.text is string && request.resource.data.text.size() <= 250))
+          || (request.resource.data.text is string
+            && request.resource.data.text.size() <= (request.resource.data.get('postType', 'snap') == 'note' ? 800 : 250)))
+        && (request.resource.data.get('postType', 'snap') != 'note'
+          || request.resource.data.get('category', '') != '')
+        && (!request.resource.data.keys().hasAny(['postType'])
+          || request.resource.data.postType == 'snap'
+          || request.resource.data.postType == 'note')
+        && (!request.resource.data.keys().hasAny(['sponsorUrl'])
+          || request.resource.data.get('sponsorUrl', '') == '')
         && (!request.resource.data.keys().hasAny(['imageUrls'])
           || validImageUrls(request.resource.data.imageUrls))
         && (!request.resource.data.keys().hasAny(['imageCount'])

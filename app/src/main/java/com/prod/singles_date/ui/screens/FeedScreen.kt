@@ -68,6 +68,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import com.prod.singles_date.ui.components.ReportReasonDialog
+import androidx.compose.material.icons.filled.Notifications
+import com.prod.singles_date.util.FeedSortMode
 import com.prod.singles_date.util.DailyPrompts
 import com.prod.singles_date.util.NetworkMonitor
 import com.prod.singles_date.viewmodel.AuthViewModel
@@ -83,6 +85,8 @@ fun FeedScreen(
     onRequireLogin: () -> Unit,
     onChangeCity: () -> Unit,
     onOpenPost: (String) -> Unit,
+    onOpenUserProfile: (String) -> Unit = {},
+    onOpenNotifications: () -> Unit = {},
 ) {
     val thoughts by thoughtViewModel.visibleThoughts.collectAsStateWithLifecycle()
     val feeledIds by thoughtViewModel.feeledThoughtIds.collectAsStateWithLifecycle()
@@ -124,9 +128,20 @@ fun FeedScreen(
     }
 
     val feedLocalityFilter by thoughtViewModel.feedLocalityFilter.collectAsStateWithLifecycle()
+    val feedCategoryFilter by thoughtViewModel.feedCategoryFilter.collectAsStateWithLifecycle()
+    val feedSortMode by thoughtViewModel.feedSortMode.collectAsStateWithLifecycle()
+    val workOnlyFilter by thoughtViewModel.workOnlyFilter.collectAsStateWithLifecycle()
     val snapsOnlyFilter by thoughtViewModel.snapsOnlyFilter.collectAsStateWithLifecycle()
+    val savedThoughtIds by thoughtViewModel.savedThoughtIds.collectAsStateWithLifecycle()
+    val canLoadMore by thoughtViewModel.canLoadMore.collectAsStateWithLifecycle()
+    val unreadNotifications by thoughtViewModel.unreadNotificationCount.collectAsStateWithLifecycle()
     val searchQuery by thoughtViewModel.searchQuery.collectAsStateWithLifecycle()
     val isRefreshing by thoughtViewModel.isRefreshing.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) {
+        val sort = prefs.getFeedSortMode()
+        thoughtViewModel.setFeedSortMode(if (sort == "hot") FeedSortMode.HOT else FeedSortMode.NEW)
+    }
 
     val dayOfYear = remember { Calendar.getInstance().get(Calendar.DAY_OF_YEAR) }
     val isPosting by thoughtViewModel.isPosting.collectAsStateWithLifecycle()
@@ -145,6 +160,7 @@ fun FeedScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var showSearch by remember { mutableStateOf(false) }
+    var showFeedTips by remember { mutableStateOf(!prefs.hasSeenFeedTips()) }
     val requestOpenComposer by thoughtViewModel.requestOpenComposer.collectAsStateWithLifecycle()
 
     LaunchedEffect(requestOpenComposer) {
@@ -240,6 +256,11 @@ fun FeedScreen(
                     }
                 },
                 actions = {
+                    if (isLoggedIn) {
+                        IconButton(onClick = onOpenNotifications) {
+                            Icon(Icons.Filled.Notifications, contentDescription = "Activity")
+                        }
+                    }
                     IconButton(onClick = { showSearch = !showSearch }) {
                         Icon(
                             Icons.Filled.Search,
@@ -297,11 +318,33 @@ fun FeedScreen(
                     cityId = activeCity,
                     selectedLocality = feedLocalityFilter,
                     snapsOnly = snapsOnlyFilter,
+                    workOnly = workOnlyFilter,
+                    selectedCategory = feedCategoryFilter,
+                    sortMode = feedSortMode,
                     onLocalitySelected = {
                         thoughtViewModel.setFeedLocalityFilter(it)
                         prefs.setFeedLocalityFilter(it)
                     },
                     onSnapsOnlySelected = { thoughtViewModel.setSnapsOnlyFilter(it) },
+                    onWorkOnlySelected = { thoughtViewModel.setWorkOnlyFilter(it) },
+                    onCategorySelected = {
+                        thoughtViewModel.setFeedCategoryFilter(it)
+                        prefs.setFeedCategoryFilter(it)
+                    },
+                    onSortModeSelected = {
+                        thoughtViewModel.setFeedSortMode(it)
+                        prefs.setFeedSortMode(if (it == FeedSortMode.HOT) "hot" else "new")
+                    },
+                )
+            }
+
+            if (showFeedTips) {
+                FeedTipsBanner(
+                    onDismiss = {
+                        showFeedTips = false
+                        prefs.setSeenFeedTips(true)
+                    },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
 
@@ -444,8 +487,28 @@ fun FeedScreen(
                             onBlock = if (isLoggedIn && fu != null && thought.authorId != fu.uid) {
                                 { thoughtViewModel.blockAuthor(fu.uid, thought.authorId) }
                             } else null,
+                            onAuthorClick = if (thought.authorId.isNotBlank()) {
+                                { onOpenUserProfile(thought.authorId) }
+                            } else null,
+                            onSave = if (isLoggedIn && fu != null && user?.isPremium == true) {
+                                {
+                                    val save = thought.id !in savedThoughtIds
+                                    thoughtViewModel.toggleSaveThought(fu.uid, thought.id, save)
+                                }
+                            } else null,
+                            isSaved = thought.id in savedThoughtIds,
                             onOpenDetail = { onOpenPost(thought.id) },
                         )
+                    }
+                    if (canLoadMore) {
+                        item(key = "load_more") {
+                            TextButton(
+                                onClick = { thoughtViewModel.loadMoreFeed() },
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            ) {
+                                Text("Load more posts")
+                            }
+                        }
                     }
                 }
             }
@@ -467,7 +530,7 @@ fun FeedScreen(
                 promptText = postPrompt,
                 isPosting = isPosting,
                 postError = postError,
-                onPostThought = { text, imageUris ->
+                onPostThought = { text, category, postType, imageUris ->
                     awaitingPostResult = true
                     thoughtViewModel.clearPostError()
                     thoughtViewModel.postThought(
@@ -477,7 +540,8 @@ fun FeedScreen(
                         authorPhotoUrl = user.photoUrl,
                         city = activeCity,
                         locality = activeLocality,
-                        category = "",
+                        category = category,
+                        postType = postType,
                         context = context,
                         imageUris = imageUris,
                     )
@@ -577,6 +641,21 @@ fun FeedScreen(
                 },
             )
         }
+    }
+}
+
+@Composable
+private fun FeedTipsBanner(onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f))
+            .padding(12.dp),
+    ) {
+        Text("Quick tips", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        Text("• Hot = trending in your city\n• Local Notes = jobs, rent, longer stories\n• Tap a name to see their profile", style = MaterialTheme.typography.bodySmall)
+        TextButton(onClick = onDismiss) { Text("Got it") }
     }
 }
 

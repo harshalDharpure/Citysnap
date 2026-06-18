@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.prod.singles_date.model.AppCity
 
@@ -31,15 +32,17 @@ fun CityPicker(
     ) {
         val sorted = AppCity.ALL.sortedBy { if (it == AppCity.BANGALORE) 0 else 1 }
         sorted.forEach { cityId ->
-            val label = if (cityId == AppCity.BANGALORE) {
-                "${AppCity.displayName(cityId)} ★"
-            } else {
-                AppCity.displayName(cityId)
+            val unlocked = AppCity.isExpansionUnlocked(cityId)
+            val label = when {
+                cityId == AppCity.BANGALORE -> "${AppCity.displayName(cityId)} ★ Live"
+                unlocked -> AppCity.displayName(cityId)
+                else -> "${AppCity.displayName(cityId)} — Coming soon"
             }
             CityOptionChip(
                 label = label,
                 selected = selectedCity == cityId,
-                onClick = { onCitySelected(cityId) },
+                enabled = unlocked,
+                onClick = { if (unlocked) onCitySelected(cityId) },
             )
         }
     }
@@ -49,17 +52,18 @@ fun CityPicker(
 private fun CityOptionChip(
     label: String,
     selected: Boolean,
+    enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    val bg = if (selected) {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-    } else {
-        Color.Transparent
+    val bg = when {
+        selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+        !enabled -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        else -> Color.Transparent
     }
-    val border = if (selected) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.outline
+    val border = when {
+        selected -> MaterialTheme.colorScheme.primary
+        !enabled -> MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+        else -> MaterialTheme.colorScheme.outline
     }
     Box(
         modifier = Modifier
@@ -67,17 +71,18 @@ private fun CityOptionChip(
             .clip(RoundedCornerShape(16.dp))
             .background(bg)
             .border(1.dp, border, RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 20.dp, vertical = 16.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.titleMedium,
-            color = if (selected) {
-                MaterialTheme.colorScheme.onBackground
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = when {
+                selected -> MaterialTheme.colorScheme.onBackground
+                !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
             },
         )
     }

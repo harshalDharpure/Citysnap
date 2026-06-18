@@ -87,6 +87,17 @@ async function notifyUser(uid, title, body, data = {}) {
       },
       android: { priority: "high" },
     });
+
+    if (type) {
+      await db.collection(`users/${uid}/notifications`).add({
+        type,
+        title,
+        body,
+        thoughtId: data.thoughtId || "",
+        read: false,
+        createdAt: Date.now(),
+      });
+    }
   } catch (err) {
     logger.warn(`Failed to send to ${uid}: ${err.message}`);
     if (

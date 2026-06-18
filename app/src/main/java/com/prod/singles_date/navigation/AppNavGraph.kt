@@ -22,10 +22,14 @@ import com.prod.singles_date.ui.screens.FeedScreen
 import com.prod.singles_date.ui.screens.LegalPage
 import com.prod.singles_date.ui.screens.LegalScreen
 import com.prod.singles_date.ui.screens.LoginScreen
+import com.prod.singles_date.ui.screens.NotificationInboxScreen
 import com.prod.singles_date.ui.screens.NotificationSettingsScreen
 import com.prod.singles_date.ui.screens.PostDetailScreen
+import com.prod.singles_date.ui.screens.PremiumScreen
 import com.prod.singles_date.ui.screens.ProfileScreen
+import com.prod.singles_date.ui.screens.PublicUserProfileScreen
 import com.prod.singles_date.ui.screens.SignupScreen
+import com.prod.singles_date.ui.screens.SponsorLeadScreen
 import com.prod.singles_date.ui.screens.SplashScreen
 import com.prod.singles_date.ui.screens.WelcomeScreen
 import com.prod.singles_date.util.AppLinks
@@ -256,7 +260,7 @@ fun AppNavGraph(
 
             LaunchedEffect(Unit) {
                 thoughtViewModel.setFeedLocalityFilter(prefs.getFeedLocalityFilter())
-                prefs.setFeedCategoryFilter("")
+                thoughtViewModel.setFeedCategoryFilter(prefs.getFeedCategoryFilter())
             }
 
             FeedScreen(
@@ -269,6 +273,8 @@ fun AppNavGraph(
                 onRequireLogin = { navController.navigate(Routes.Login) },
                 onChangeCity = { navController.navigate(Routes.CitySelect) },
                 onOpenPost = { thoughtId -> navController.navigate(Routes.postDetail(thoughtId)) },
+                onOpenUserProfile = { uid -> navController.navigate(Routes.userProfile(uid)) },
+                onOpenNotifications = { navController.navigate(Routes.NotificationInbox) },
             )
         }
 
@@ -331,6 +337,62 @@ fun AppNavGraph(
             )
         }
 
+        composable(Routes.NotificationInbox) {
+            val fu = authViewModel.firebaseUser.collectAsStateWithLifecycle().value
+            if (fu == null) {
+                LaunchedEffect(Unit) { navController.popBackStack() }
+            } else {
+                NotificationInboxScreen(
+                    thoughtViewModel = thoughtViewModel,
+                    currentUid = fu.uid,
+                    onBack = { navController.popBackStack() },
+                    onOpenPost = { id -> navController.navigate(Routes.postDetail(id)) },
+                )
+            }
+        }
+
+        composable(Routes.Premium) {
+            val profile by authViewModel.currentUser.collectAsStateWithLifecycle()
+            PremiumScreen(
+                isPremium = profile?.isPremium == true,
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Routes.SponsorLead) {
+            val fu = authViewModel.firebaseUser.collectAsStateWithLifecycle().value
+            val profile by authViewModel.currentUser.collectAsStateWithLifecycle()
+            if (fu == null) {
+                LaunchedEffect(Unit) { navController.popBackStack() }
+            } else {
+                SponsorLeadScreen(
+                    defaultCity = profile?.city?.ifBlank { prefs.getGuestCity() }.orEmpty(),
+                    currentUid = fu.uid,
+                    userEmail = profile?.email ?: fu.email.orEmpty(),
+                    onSubmit = { business, email, city, budget, message, onDone ->
+                        thoughtViewModel.submitSponsorLead(fu.uid, business, email, city, budget, message, onDone)
+                    },
+                    onBack = { navController.popBackStack() },
+                )
+            }
+        }
+
+        composable(
+            route = Routes.UserProfile,
+            arguments = listOf(navArgument("uid") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val uid = backStackEntry.arguments?.getString("uid").orEmpty()
+            val fu = authViewModel.firebaseUser.collectAsStateWithLifecycle().value
+            PublicUserProfileScreen(
+                authorUid = uid,
+                currentUid = fu?.uid,
+                thoughtViewModel = thoughtViewModel,
+                onBack = { navController.popBackStack() },
+                onOpenPost = { id -> navController.navigate(Routes.postDetail(id)) },
+                onRequireLogin = { navController.navigate(Routes.Login) },
+            )
+        }
+
         composable(Routes.LegalGuidelines) {
             LegalScreen(page = LegalPage.Guidelines, onBack = { navController.popBackStack() })
         }
@@ -359,6 +421,9 @@ fun AppNavGraph(
                 onChangeCity = { navController.navigate(Routes.CitySelect) },
                 onOpenBlockedUsers = { navController.navigate(Routes.BlockedUsers) },
                 onOpenNotificationSettings = { navController.navigate(Routes.NotificationSettings) },
+                onOpenNotificationInbox = { navController.navigate(Routes.NotificationInbox) },
+                onOpenPremium = { navController.navigate(Routes.Premium) },
+                onOpenSponsorLead = { navController.navigate(Routes.SponsorLead) },
                 onOpenGuidelines = { navController.navigate(Routes.LegalGuidelines) },
                 onOpenPrivacy = { navController.navigate(Routes.LegalPrivacy) },
                 onSnap = {

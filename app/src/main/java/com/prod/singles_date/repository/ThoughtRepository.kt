@@ -7,8 +7,10 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import com.prod.singles_date.model.AppNotification
 import com.prod.singles_date.model.CityMood
 import com.prod.singles_date.model.Comment
+import com.prod.singles_date.model.PostType
 import com.prod.singles_date.model.Thought
 import com.prod.singles_date.model.User
 import kotlinx.coroutines.channels.awaitClose
@@ -26,8 +28,11 @@ class ThoughtRepository(
 ) {
     private companion object {
         private const val TAG = "HoghtFirestore"
-        private const val THOUGHTS_LIMIT = 100L
+        private const val THOUGHTS_LIMIT = 150L
+        private const val PAGE_SIZE = 30
     }
+
+    fun pageSize(): Int = PAGE_SIZE
 
     /**
      * City-scoped feed. Filters locality/category client-side so Firestore does not
@@ -116,12 +121,19 @@ class ThoughtRepository(
         city: String,
         locality: String,
         category: String,
+        postType: String = PostType.SNAP,
         context: Context,
         imageUris: List<Uri> = emptyList(),
     ) {
-        val trimmedText = text.trim()
-        val cappedUris = imageUris.take(MediaRepository.MAX_IMAGES_PER_POST)
+        val type = postType.ifBlank { PostType.SNAP }
+        require(PostType.isValid(type)) { "Invalid post type" }
+        val maxLen = PostType.maxLength(type)
+        val trimmedText = text.trim().take(maxLen)
+        val cappedUris = if (type == PostType.NOTE) emptyList() else imageUris.take(MediaRepository.MAX_IMAGES_PER_POST)
         if ((trimmedText.isBlank() && cappedUris.isEmpty()) || city.isBlank()) return
+        if (type == PostType.NOTE && category.isBlank()) {
+            error("Pick a category for Local Notes")
+        }
 
         val doc = db.collection("thoughts").document()
         val imageUrls = if (cappedUris.isNotEmpty()) {
@@ -147,8 +159,10 @@ class ThoughtRepository(
             city = city,
             locality = locality,
             category = category,
+            postType = type,
             isSponsored = false,
             sponsorLabel = "",
+            sponsorUrl = "",
             imageUrls = imageUrls,
             imageCount = imageUrls.size,
             createdAt = System.currentTimeMillis(),
@@ -382,6 +396,86 @@ class ThoughtRepository(
                 trySend(if (error != null) emptySet() else snapshot?.documents?.map { it.id }?.toSet().orEmpty())
             }
         awaitClose { reg.remove() }
+    }
+
+    suspend fun getUserProfile(uid: String): User? {
+        if (uid.isBlank()) return null
+        val snap = db.collection("users").document(uid).get().await()
+        return snap.toObject(User::class.java)?.copy(uid = snap.id)
+    }
+
+    fun authorThoughtsFlow(uid: String): Flow<List<Thought>> = callbackFlow {
+        if (uid.isBlank()) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+        val reg = db.collection("thoughts")
+            .whereEqualTo("authorId", uid)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+                val items = snapshot?.documents?.mapNotNull { doc ->
+                    val t = doc.toObject(Thought::class.java) ?: return@mapNotNull null
+                    if (t.id.isNotBlank()) t else t.copy(id = doc.id)
+                }.orEmpty().sortedByDescending { it.createdAt }
+                trySend(items)
+            }
+        awaitClose { reg.remove() }
+    }
+
+    fun notificationsFlow(uid: String): Flow<List<AppNotification>> = callbackFlow {
+        if (uid.isBlank()) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+        val reg = db.collection("users").document(uid).collection("notifications")
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(50)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+                val items = snapshot?.documents?.mapNotNull { doc ->
+                    val n = doc.toObject(AppNotification::class.java) ?: return@mapNotNull null
+                    if (n.id.isNotBlank()) n else n.copy(id = doc.id)
+                }.orEmpty()
+                trySend(items)
+            }
+        awaitClose { reg.remove() }
+    }
+
+    suspend fun markNotificationRead(uid: String, notificationId: String) {
+        if (uid.isBlank() || notificationId.isBlank()) return
+        db.collection("users").document(uid).collection("notifications")
+            .document(notificationId)
+            .update("read", true)
+            .await()
+    }
+
+    suspend fun submitSponsorLead(
+        uid: String,
+        businessName: String,
+        email: String,
+        city: String,
+        budget: String,
+        message: String,
+    ) {
+        db.collection("sponsor_leads").add(
+            mapOf(
+                "uid" to uid,
+                "businessName" to businessName.trim(),
+                "email" to email.trim(),
+                "city" to city,
+                "budget" to budget.trim(),
+                "message" to message.trim(),
+                "createdAt" to System.currentTimeMillis(),
+            ),
+        ).await()
     }
 
     suspend fun computeVoiceScore(user: User, myThoughts: List<Thought>): Int {

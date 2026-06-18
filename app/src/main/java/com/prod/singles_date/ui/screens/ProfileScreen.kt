@@ -95,6 +95,9 @@ fun ProfileScreen(
     onChangeCity: () -> Unit,
     onOpenBlockedUsers: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
+    onOpenNotificationInbox: () -> Unit = {},
+    onOpenPremium: () -> Unit = {},
+    onOpenSponsorLead: () -> Unit = {},
     onOpenGuidelines: () -> Unit,
     onOpenPrivacy: () -> Unit,
     onSnap: () -> Unit = {},
@@ -300,7 +303,16 @@ fun ProfileScreen(
             }
 
             item {
+                PremiumUpsellCard(
+                    isPremium = user.isPremium,
+                    onOpenPremium = onOpenPremium,
+                    onOpenSponsorLead = onOpenSponsorLead,
+                )
+            }
+
+            item {
                 SettingsCard(
+                    onActivity = onOpenNotificationInbox,
                     onBlockedUsers = onOpenBlockedUsers,
                     onNotifications = onOpenNotificationSettings,
                     onGuidelines = onOpenGuidelines,
@@ -778,7 +790,45 @@ private fun ProfileHeroCard(
 }
 
 @Composable
+private fun PremiumUpsellCard(
+    isPremium: Boolean,
+    onOpenPremium: () -> Unit,
+    onOpenSponsorLead: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f))
+            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), RoundedCornerShape(24.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            if (isPremium) "Citysnap Premium active" else "Citysnap Premium — ₹99/mo",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            if (isPremium) "Save posts, get locality alerts, support your city feed."
+            else "Save unlimited posts and unlock locality alerts.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onOpenPremium) {
+                Text(if (isPremium) "Manage" else "Learn more")
+            }
+            TextButton(onClick = onOpenSponsorLead) {
+                Text("Advertise")
+            }
+        }
+    }
+}
+
+@Composable
 private fun SettingsCard(
+    onActivity: () -> Unit,
     onBlockedUsers: () -> Unit,
     onNotifications: () -> Unit,
     onGuidelines: () -> Unit,
@@ -798,6 +848,7 @@ private fun SettingsCard(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
         )
+        SettingsRow("Activity inbox", onActivity)
         SettingsRow("Blocked users", onBlockedUsers)
         SettingsRow("Notification preferences", onNotifications)
         SettingsRow("Community guidelines", onGuidelines)

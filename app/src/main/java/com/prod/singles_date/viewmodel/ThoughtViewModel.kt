@@ -6,8 +6,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.analytics.FirebaseAnalytics
 import com.prod.singles_date.CitysnapApplication
+import com.prod.singles_date.model.AppNotification
 import com.prod.singles_date.model.BlockedUser
 import com.prod.singles_date.model.CityMood
+import com.prod.singles_date.model.PostType
 import com.prod.singles_date.model.Thought
 import com.prod.singles_date.model.Comment
 import com.prod.singles_date.repository.ThoughtRepository
@@ -20,9 +22,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -51,6 +53,22 @@ class ThoughtViewModel(
 
     fun setFeedLocalityFilter(locality: String) {
         _feedLocalityFilter.value = locality
+        _displayLimit.value = repository.pageSize()
+    }
+
+    private val _feedCategoryFilter = MutableStateFlow("")
+    val feedCategoryFilter: StateFlow<String> = _feedCategoryFilter.asStateFlow()
+
+    fun setFeedCategoryFilter(category: String) {
+        _feedCategoryFilter.value = category
+        _displayLimit.value = repository.pageSize()
+    }
+
+    private val _feedSortMode = MutableStateFlow(FeedSortMode.NEW)
+    val feedSortMode: StateFlow<FeedSortMode> = _feedSortMode.asStateFlow()
+
+    fun setFeedSortMode(mode: FeedSortMode) {
+        _feedSortMode.value = mode
     }
 
     private val _snapsOnlyFilter = MutableStateFlow(false)
@@ -60,6 +78,15 @@ class ThoughtViewModel(
         _snapsOnlyFilter.value = enabled
     }
 
+    private val _workOnlyFilter = MutableStateFlow(false)
+    val workOnlyFilter: StateFlow<Boolean> = _workOnlyFilter.asStateFlow()
+
+    fun setWorkOnlyFilter(enabled: Boolean) {
+        _workOnlyFilter.value = enabled
+        if (enabled) _feedCategoryFilter.value = "work"
+        else if (_feedCategoryFilter.value == "work") _feedCategoryFilter.value = ""
+    }
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
@@ -67,15 +94,25 @@ class ThoughtViewModel(
         _searchQuery.value = query.trim()
     }
 
+    private val _refreshNonce = MutableStateFlow(0)
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     fun refreshFeed() {
         viewModelScope.launch {
             _isRefreshing.value = true
-            delay(500)
+            _refreshNonce.value += 1
+            _displayLimit.value = repository.pageSize()
+            delay(400)
             _isRefreshing.value = false
         }
+    }
+
+    private val _displayLimit = MutableStateFlow(repository.pageSize())
+    val displayLimit: StateFlow<Int> = _displayLimit.asStateFlow()
+
+    fun loadMoreFeed() {
+        _displayLimit.value += repository.pageSize()
     }
 
     private val _isPosting = MutableStateFlow(false)
@@ -88,13 +125,13 @@ class ThoughtViewModel(
         _postError.value = null
     }
 
-    private data class FeedQuery(val city: String, val locality: String)
+    private data class FeedQuery(val city: String, val locality: String, val category: String, val nonce: Int)
 
     val thoughts: StateFlow<List<Thought>> =
-        combine(_selectedCity, _feedLocalityFilter) { city, locality ->
-            FeedQuery(city, locality)
+        combine(_selectedCity, _feedLocalityFilter, _feedCategoryFilter, _refreshNonce) { city, locality, category, nonce ->
+            FeedQuery(city, locality, category, nonce)
         }
-            .flatMapLatest { q -> repository.thoughtsFlow(q.city, q.locality, category = "") }
+            .flatMapLatest { q -> repository.thoughtsFlow(q.city, q.locality, q.category) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val cityMood: StateFlow<CityMood?> =
@@ -182,6 +219,36 @@ class ThoughtViewModel(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
+    val notifications: StateFlow<List<AppNotification>> =
+        _currentUid
+            .flatMapLatest { uid ->
+                if (uid.isNullOrBlank()) kotlinx.coroutines.flow.flowOf(emptyList())
+                else repository.notificationsFlow(uid)
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val unreadNotificationCount: StateFlow<Int> =
+        notifications
+            .map { list -> list.count { !it.read } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    private val _publicProfileUid = MutableStateFlow("")
+    val publicProfileThoughts: StateFlow<List<Thought>> =
+        _publicProfileUid
+            .flatMapLatest { uid ->
+                if (uid.isBlank()) kotlinx.coroutines.flow.flowOf(emptyList())
+                else repository.authorThoughtsFlow(uid)
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun setPublicProfileUid(uid: String) {
+        _publicProfileUid.value = uid
+    }
+
+    fun clearPublicProfileUid() {
+        _publicProfileUid.value = ""
+    }
+
     private val hiddenThoughtIds: StateFlow<Set<String>> =
         _currentUid
             .flatMapLatest { uid ->
@@ -212,30 +279,38 @@ class ThoughtViewModel(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    private val rankedThoughts: StateFlow<List<Thought>> =
-        thoughts
-            .map { list ->
-                FeedRankingContext(
-                    thoughts = list,
-                    hidden = emptySet(),
-                    blocked = emptySet(),
-                    city = "",
-                    userLocality = "",
-                )
-            }
-            .combine(hiddenThoughtIds) { ctx, hidden -> ctx.copy(hidden = hidden) }
-            .combine(blockedUids) { ctx, blocked -> ctx.copy(blocked = blocked) }
-            .combine(_selectedCity) { ctx, city -> ctx.copy(city = city) }
-            .combine(_selectedLocality) { ctx, userLocality -> ctx.copy(userLocality = userLocality) }
-            .combine(_feedLocalityFilter) { ctx, _ ->
-                rankVisibleThoughts(ctx)
-            }
+    private val rankedThoughtsRaw: StateFlow<List<Thought>> =
+        combine(
+            thoughts,
+            hiddenThoughtIds,
+            blockedUids,
+            _selectedCity,
+            _selectedLocality,
+            _feedSortMode,
+        ) { thoughtList, hidden, blocked, city, userLocality, sortMode ->
+            FeedRankingContext(
+                thoughts = thoughtList,
+                hidden = hidden,
+                blocked = blocked,
+                city = city,
+                userLocality = userLocality,
+                sortMode = sortMode,
+            )
+        }
+            .map { ctx -> rankVisibleThoughts(ctx) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val canLoadMore: StateFlow<Boolean> =
+        combine(_displayLimit, rankedThoughtsRaw) { limit, all -> all.size > limit }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     val visibleThoughts: StateFlow<List<Thought>> =
-        rankedThoughts
+        rankedThoughtsRaw
             .combine(_snapsOnlyFilter) { thoughts, snapsOnly ->
                 if (snapsOnly) thoughts.filter { it.imageUrls.isNotEmpty() } else thoughts
+            }
+            .combine(_workOnlyFilter) { thoughts, workOnly ->
+                if (workOnly) thoughts.filter { it.category == "work" || it.category == "startup" } else thoughts
             }
             .combine(_searchQuery) { thoughts, query ->
                 if (query.isBlank()) thoughts
@@ -245,6 +320,7 @@ class ThoughtViewModel(
                         thought.locality.contains(query, ignoreCase = true)
                 }
             }
+            .combine(_displayLimit) { thoughts, limit -> thoughts.take(limit) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _activeCommentsThoughtId = MutableStateFlow<String?>(null)
@@ -271,6 +347,27 @@ class ThoughtViewModel(
         viewModelScope.launch { runCatching { repository.toggleSaveThought(uid, thoughtId, save) } }
     }
 
+    fun markNotificationRead(uid: String, notificationId: String) {
+        viewModelScope.launch { runCatching { repository.markNotificationRead(uid, notificationId) } }
+    }
+
+    fun submitSponsorLead(
+        uid: String,
+        businessName: String,
+        email: String,
+        city: String,
+        budget: String,
+        message: String,
+        onDone: (Boolean) -> Unit = {},
+    ) {
+        viewModelScope.launch {
+            val result = runCatching {
+                repository.submitSponsorLead(uid, businessName, email, city, budget, message)
+            }
+            onDone(result.isSuccess)
+        }
+    }
+
     fun postThought(
         rawText: String,
         authorId: String,
@@ -279,10 +376,12 @@ class ThoughtViewModel(
         city: String,
         locality: String,
         category: String,
+        postType: String = PostType.SNAP,
         context: Context,
         imageUris: List<Uri> = emptyList(),
     ) {
-        val text = rawText.trim().take(MAX_THOUGHT_LENGTH)
+        val maxLen = PostType.maxLength(postType)
+        val text = rawText.trim().take(maxLen)
         if ((text.isBlank() && imageUris.isEmpty()) || city.isBlank()) return
         viewModelScope.launch {
             _isPosting.value = true
@@ -296,6 +395,7 @@ class ThoughtViewModel(
                     city = city,
                     locality = locality,
                     category = category,
+                    postType = postType,
                     context = context,
                     imageUris = imageUris,
                 )
@@ -352,14 +452,18 @@ class ThoughtViewModel(
         viewModelScope.launch { runCatching { repository.addComment(thoughtId, userId, userName, body) } }
     }
 
+    suspend fun fetchUserProfile(uid: String) = repository.getUserProfile(uid)
+
     companion object {
-        const val MAX_THOUGHT_LENGTH = 250
+        const val MAX_THOUGHT_LENGTH = PostType.SNAP_MAX_LENGTH
+        const val MAX_NOTE_LENGTH = PostType.NOTE_MAX_LENGTH
     }
 }
 
 private fun humanizePostError(error: Throwable): String {
     val msg = error.message.orEmpty().lowercase()
     return when {
+        msg.contains("category") -> "Pick a category for Local Notes."
         msg.contains("network") || msg.contains("unavailable") || msg.contains("timeout") ->
             "No internet connection. Check your network and try again."
         msg.contains("storage") || msg.contains("upload") || msg.contains("object") ->
@@ -377,16 +481,19 @@ private data class FeedRankingContext(
     val blocked: Set<String>,
     val city: String,
     val userLocality: String,
+    val sortMode: FeedSortMode,
 )
 
 private fun rankVisibleThoughts(ctx: FeedRankingContext): List<Thought> {
     val now = System.currentTimeMillis()
-
     val filtered = ctx.thoughts.filter { thought ->
         thought.id !in ctx.hidden &&
             thought.authorId !in ctx.blocked &&
             (ctx.city.isBlank() || thought.city.isBlank() || thought.city == ctx.city)
     }
-
-    return FeedRanking.sortThoughts(filtered, FeedSortMode.NEW, now)
+    return if (ctx.userLocality.isNotBlank() && ctx.sortMode == FeedSortMode.HOT) {
+        FeedRanking.mixLocalAndCity(filtered, ctx.userLocality, ctx.sortMode, now)
+    } else {
+        FeedRanking.sortThoughts(filtered, ctx.sortMode, now)
+    }
 }

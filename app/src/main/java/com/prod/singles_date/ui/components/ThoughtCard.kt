@@ -35,7 +35,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.prod.singles_date.model.AppCity
 import com.prod.singles_date.model.AppLocality
+import com.prod.singles_date.model.PostType
 import com.prod.singles_date.model.Thought
+import com.prod.singles_date.model.ThoughtCategory
 import com.prod.singles_date.ui.theme.feedDividerColor
 import com.prod.singles_date.util.FeedRanking
 import java.util.concurrent.TimeUnit
@@ -57,6 +59,9 @@ fun ThoughtCard(
     onReport: (() -> Unit)? = null,
     onBlock: (() -> Unit)? = null,
     onOpenDetail: (() -> Unit)? = null,
+    onAuthorClick: (() -> Unit)? = null,
+    onSave: (() -> Unit)? = null,
+    isSaved: Boolean = false,
     showComments: Boolean = true,
     showFeelButton: Boolean = true,
     modifier: Modifier = Modifier,
@@ -90,6 +95,9 @@ fun ThoughtCard(
                 name = authorName,
                 photoUrl = photoUrl,
                 size = 40.dp,
+                modifier = Modifier.then(
+                    if (onAuthorClick != null) Modifier.clickable(onClick = onAuthorClick) else Modifier,
+                ),
             )
             Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -100,6 +108,9 @@ fun ThoughtCard(
                     color = MaterialTheme.colorScheme.onBackground,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.then(
+                        if (onAuthorClick != null) Modifier.clickable(onClick = onAuthorClick) else Modifier,
+                    ),
                 )
                 Text(
                     text = localityLine,
@@ -115,7 +126,30 @@ fun ThoughtCard(
                 onDelete = onDelete,
                 onReport = onReport,
                 onBlock = onBlock,
+                onSave = onSave,
+                isSaved = isSaved,
             )
+        }
+
+        if (thought.postType == PostType.NOTE || thought.category.isNotBlank()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(modifier = Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (thought.postType == PostType.NOTE) {
+                    Text(
+                        text = "📋 Local Note",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                if (thought.category.isNotBlank()) {
+                    Text(
+                        text = "${ThoughtCategory.emoji(thought.category)} ${ThoughtCategory.displayName(thought.category)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
 
         if (thought.isSponsored || trendingLabel != null) {
@@ -135,6 +169,18 @@ fun ThoughtCard(
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
+            }
+            if (thought.isSponsored && thought.sponsorUrl.isNotBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Learn more →",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp)
+                        .then(if (onOpenDetail != null) Modifier.clickable(onClick = onOpenDetail) else Modifier),
+                )
             }
         }
 
@@ -242,6 +288,8 @@ private fun ThoughtCardOverflowMenu(
     onDelete: (() -> Unit)?,
     onReport: (() -> Unit)?,
     onBlock: (() -> Unit)?,
+    onSave: (() -> Unit)? = null,
+    isSaved: Boolean = false,
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -273,6 +321,22 @@ private fun ThoughtCardOverflowMenu(
                 onWhatsApp()
             },
         )
+        DropdownMenuItem(
+            text = { Text("Share card") },
+            onClick = {
+                expanded = false
+                onShareImage()
+            },
+        )
+        if (onSave != null) {
+            DropdownMenuItem(
+                text = { Text(if (isSaved) "Unsave" else "Save post") },
+                onClick = {
+                    expanded = false
+                    onSave()
+                },
+            )
+        }
         if (onEdit != null) {
             DropdownMenuItem(
                 text = { Text("Edit") },

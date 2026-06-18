@@ -18,7 +18,8 @@ class AppCityTest {
     }
 
     @Test
-    fun isExpansionUnlocked_bangaloreAlwaysOpen() {
+    fun isExpansionUnlocked_onlyBangaloreAtRollout() {
         assertTrue(AppCity.isExpansionUnlocked(AppCity.BANGALORE))
+        assertFalse(AppCity.isExpansionUnlocked(AppCity.PUNE))
     }
 }

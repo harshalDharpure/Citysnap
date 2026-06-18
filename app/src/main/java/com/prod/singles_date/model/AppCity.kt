@@ -26,9 +26,6 @@ object AppCity {
 
     fun isValid(cityId: String): Boolean = cityId in ALL
 
-    fun isExpansionUnlocked(cityId: String): Boolean {
-        if (cityId == BANGALORE) return true
-        // Phase 9 gates — other cities unlock after Bangalore hits targets.
-        return cityId in listOf(PUNE, HYDERABAD, CHENNAI, MUMBAI, DELHI)
-    }
+    /** Only Bangalore is live at rollout; other cities unlock via Remote Config / ops. */
+    fun isExpansionUnlocked(cityId: String): Boolean = cityId == BANGALORE
 }

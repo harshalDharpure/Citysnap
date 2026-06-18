@@ -92,6 +92,18 @@ class LocalPreferences(context: Context) {
         prefs.edit().putBoolean(KEY_NOTIFY_PROMPTS, enabled).apply()
     }
 
+    fun getFeedSortMode(): String = prefs.getString(KEY_FEED_SORT, "new").orEmpty()
+
+    fun setFeedSortMode(mode: String) {
+        prefs.edit().putString(KEY_FEED_SORT, mode).apply()
+    }
+
+    fun hasSeenFeedTips(): Boolean = prefs.getBoolean(KEY_SEEN_FEED_TIPS, false)
+
+    fun setSeenFeedTips(seen: Boolean = true) {
+        prefs.edit().putBoolean(KEY_SEEN_FEED_TIPS, seen).apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "hoght_prefs"
         private const val KEY_GUEST_CITY = "guest_city"
@@ -105,6 +117,8 @@ class LocalPreferences(context: Context) {
         private const val KEY_NOTIFY_FEELS = "notify_feels"
         private const val KEY_NOTIFY_COMMENTS = "notify_comments"
         private const val KEY_NOTIFY_PROMPTS = "notify_prompts"
+        private const val KEY_FEED_SORT = "feed_sort_mode"
+        private const val KEY_SEEN_FEED_TIPS = "seen_feed_tips"
 
         fun referralCodeForUid(uid: String): String = uid.take(8).lowercase()
 

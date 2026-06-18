@@ -25,6 +25,7 @@ class PostImagePickerState internal constructor(
     val onTakePhoto: () -> Unit,
     val onChooseGallery: () -> Unit,
     val onRemoveImage: (Uri) -> Unit,
+    val onClearAll: () -> Unit,
     val onDismissPickerMessage: () -> Unit,
 )
 
@@ -95,6 +96,7 @@ fun rememberPostImagePickerState(
         onRemoveImage = { uri ->
             selectedImages = selectedImages.filterNot { it == uri }
         },
+        onClearAll = { selectedImages = emptyList() },
         onDismissPickerMessage = { pickerMessage = null },
     )
 }
