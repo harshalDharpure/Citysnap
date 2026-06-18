@@ -3,10 +3,10 @@
 /**
  * hoght Cloud Functions — notifications, prompts, trending, badges, city mood.
  *
- * Deploy: firebase deploy --only functions,firestore:rules,firestore:indexes
+ * Deploy: firebase deploy --only functions,firestore:rules,firestore:indexes,storage
  */
 
-const { onDocumentCreated, onDocumentDeleted } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentDeleted, onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { logger } = require("firebase-functions");
 const admin = require("firebase-admin");
@@ -15,6 +15,7 @@ admin.initializeApp();
 
 const db = admin.firestore();
 const messaging = admin.messaging();
+const bucket = admin.storage().bucket();
 
 const FEEL_MILESTONES = [10, 50, 100, 500, 1000];
 const CITIES = ["bangalore", "pune", "hyderabad", "chennai", "mumbai", "delhi"];
@@ -135,6 +136,61 @@ async function notifyLocalityUsers(city, locality, title, body, data = {}) {
   }
 }
 
+async function updateCounter(ref, field, delta) {
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return 0;
+    const current = snap.get(field) || 0;
+    const next = Math.max(0, current + delta);
+    tx.update(ref, { [field]: next });
+    return next;
+  });
+}
+
+function publicProfileForUser(uid, user) {
+  return {
+    uid,
+    name: user.name || "User",
+    photoUrl: user.photoUrl || "",
+    city: user.city || "",
+    locality: user.locality || "",
+    postStreak: user.postStreak || 0,
+    voiceScore: user.voiceScore || 0,
+    badges: Array.isArray(user.badges) ? user.badges : [],
+  };
+}
+
+async function syncReferralCode(uid, before, after) {
+  const beforeCode = before && before.referralCode ? before.referralCode : "";
+  const afterCode = after && after.referralCode ? after.referralCode : "";
+  if (beforeCode && beforeCode !== afterCode) {
+    await db.doc(`referral_codes/${beforeCode}`).delete();
+  }
+  if (afterCode) {
+    await db.doc(`referral_codes/${afterCode}`).set({
+      uid,
+      code: afterCode,
+      updatedAt: Date.now(),
+    });
+  }
+}
+
+/** Keep public profile data separate from private user documents. */
+exports.onUserProfileWritten = onDocumentWritten("users/{uid}", async (event) => {
+  const uid = event.params.uid;
+  const before = event.data.before.exists ? event.data.before.data() : null;
+  const after = event.data.after.exists ? event.data.after.data() : null;
+
+  if (!after) {
+    await db.doc(`public_profiles/${uid}`).delete();
+    await syncReferralCode(uid, before, null);
+    return;
+  }
+
+  await db.doc(`public_profiles/${uid}`).set(publicProfileForUser(uid, after));
+  await syncReferralCode(uid, before, after);
+});
+
 /** When a new thought is posted, award contributor badges server-side. */
 exports.onThoughtCreated = onDocumentCreated("thoughts/{thoughtId}", async (event) => {
   const thought = event.data && event.data.data();
@@ -169,13 +225,14 @@ exports.onThoughtCreated = onDocumentCreated("thoughts/{thoughtId}", async (even
 /** When someone reacts, notify author; milestone at 10/50/100/500/1000. */
 exports.onFeel = onDocumentCreated("thoughts/{thoughtId}/feels/{uid}", async (event) => {
   const { thoughtId, uid: feelerUid } = event.params;
-  const thoughtSnap = await db.doc(`thoughts/${thoughtId}`).get();
+  const thoughtRef = db.doc(`thoughts/${thoughtId}`);
+  const feelCount = await updateCounter(thoughtRef, "feelCount", 1);
+  const thoughtSnap = await thoughtRef.get();
   if (!thoughtSnap.exists) return;
 
   const authorId = thoughtSnap.get("authorId");
   if (!authorId || authorId === feelerUid) return;
 
-  const feelCount = thoughtSnap.get("feelCount") || 0;
   const cityName = cityDisplay(thoughtSnap.get("city") || "bangalore");
 
   if (FEEL_MILESTONES.includes(feelCount)) {
@@ -194,6 +251,12 @@ exports.onFeel = onDocumentCreated("thoughts/{thoughtId}/feels/{uid}", async (ev
     "Your thought just resonated with someone.",
     { type: "feel", thoughtId },
   );
+});
+
+/** Keep public counters server-owned when a reaction is removed. */
+exports.onFeelDeleted = onDocumentDeleted("thoughts/{thoughtId}/feels/{uid}", async (event) => {
+  const { thoughtId } = event.params;
+  await updateCounter(db.doc(`thoughts/${thoughtId}`), "feelCount", -1);
 });
 
 /** Referral badge at 3 invites. */
@@ -219,7 +282,13 @@ exports.onComment = onDocumentCreated(
     const comment = event.data && event.data.data();
     if (!comment) return;
 
-    const thoughtSnap = await db.doc(`thoughts/${thoughtId}`).get();
+    const thoughtRef = db.doc(`thoughts/${thoughtId}`);
+    await updateCounter(thoughtRef, "commentCount", 1);
+    if (comment.userId) {
+      await updateCounter(db.doc(`users/${comment.userId}`), "totalCommentsWritten", 1);
+    }
+
+    const thoughtSnap = await thoughtRef.get();
     if (!thoughtSnap.exists) return;
 
     const authorId = thoughtSnap.get("authorId");
@@ -232,6 +301,19 @@ exports.onComment = onDocumentCreated(
       preview || "Open hoght to read the reply.",
       { type: "comment", thoughtId },
     );
+  },
+);
+
+/** Keep comment counters correct when a comment is deleted. */
+exports.onCommentDeleted = onDocumentDeleted(
+  "thoughts/{thoughtId}/comments/{commentId}",
+  async (event) => {
+    const { thoughtId } = event.params;
+    const comment = event.data && event.data.data();
+    await updateCounter(db.doc(`thoughts/${thoughtId}`), "commentCount", -1);
+    if (comment && comment.userId) {
+      await updateCounter(db.doc(`users/${comment.userId}`), "totalCommentsWritten", -1);
+    }
   },
 );
 
@@ -421,6 +503,14 @@ async function deleteCollectionGroupByField(collectionId, field, value) {
   }
 }
 
+async function deleteStoragePrefix(prefix) {
+  try {
+    await bucket.deleteFiles({ prefix, force: true });
+  } catch (err) {
+    logger.warn(`Failed to delete storage prefix ${prefix}: ${err.message}`);
+  }
+}
+
 /** Safety net: purge orphaned data when a user document is deleted. */
 exports.onUserDeleted = onDocumentDeleted("users/{uid}", async (event) => {
   const uid = event.params.uid;
@@ -433,4 +523,7 @@ exports.onUserDeleted = onDocumentDeleted("users/{uid}", async (event) => {
 
   await deleteCollectionGroupByField("comments", "userId", uid);
   await deleteCollectionGroupByField("feels", "uid", uid);
+  await deleteSubcollection(db.collection(`users/${uid}/notifications`));
+  await deleteStoragePrefix(`profiles/${uid}/`);
+  await deleteStoragePrefix(`thoughts/${uid}/`);
 });

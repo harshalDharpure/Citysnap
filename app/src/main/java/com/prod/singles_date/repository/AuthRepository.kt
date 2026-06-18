@@ -10,7 +10,6 @@ import com.google.firebase.firestore.SetOptions
 import com.google.firebase.messaging.FirebaseMessaging
 import com.prod.singles_date.data.LocalPreferences
 import com.prod.singles_date.model.AppCity
-import com.prod.singles_date.model.User
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -38,30 +37,29 @@ class AuthRepository(
 
     suspend fun signUp(name: String, email: String, password: String, city: String = "") {
         if (city.isNotBlank()) require(AppCity.isValid(city)) { "Invalid city" }
-        Log.d(TAG, "signUp(email=$email city=$city)")
+        Log.d(TAG, "signUp(city=$city)")
         val cred = auth.createUserWithEmailAndPassword(email, password).await()
         val u = cred.user ?: error("Firebase user missing after signup")
 
-        val profile = User(
-            uid = u.uid,
-            name = name,
-            email = u.email ?: email,
-            city = city,
-            referralCode = LocalPreferences.referralCodeForUid(u.uid),
-            createdAt = System.currentTimeMillis(),
-        )
-
         db.collection("users")
             .document(u.uid)
-            .set(profile)
+            .set(
+                userProfileCreateData(
+                    uid = u.uid,
+                    name = name,
+                    email = u.email ?: email,
+                    city = city,
+                    photoUrl = "",
+                ),
+            )
             .await()
-        Log.d(TAG, "signUp success uid=${u.uid}")
+        Log.d(TAG, "signUp success")
     }
 
     suspend fun logIn(email: String, password: String) {
-        Log.d(TAG, "logIn(email=$email)")
+        Log.d(TAG, "logIn")
         auth.signInWithEmailAndPassword(email, password).await()
-        Log.d(TAG, "logIn success uid=${auth.currentUser?.uid}")
+        Log.d(TAG, "logIn success")
     }
 
     suspend fun signInWithGoogle(idToken: String) {
@@ -72,27 +70,27 @@ class AuthRepository(
         val isNewUser = result.additionalUserInfo?.isNewUser == true
         if (isNewUser) {
             val email = u.email.orEmpty()
-            val profile = User(
-                uid = u.uid,
-                name = u.displayName?.takeIf { it.isNotBlank() }
-                    ?: email.substringBefore('@').ifBlank { "You" },
-                email = email,
-                photoUrl = u.photoUrl?.toString().orEmpty(),
-                referralCode = LocalPreferences.referralCodeForUid(u.uid),
-                createdAt = System.currentTimeMillis(),
-            )
             db.collection("users")
                 .document(u.uid)
-                .set(profile)
+                .set(
+                    userProfileCreateData(
+                        uid = u.uid,
+                        name = u.displayName?.takeIf { it.isNotBlank() }
+                            ?: email.substringBefore('@').ifBlank { "You" },
+                        email = email,
+                        city = "",
+                        photoUrl = u.photoUrl?.toString().orEmpty(),
+                    ),
+                )
                 .await()
         } else {
             ensureReferralCode(u.uid)
         }
-        Log.d(TAG, "signInWithGoogle success uid=${u.uid} new=$isNewUser")
+        Log.d(TAG, "signInWithGoogle success new=$isNewUser")
     }
 
     suspend fun sendPasswordReset(email: String) {
-        Log.d(TAG, "sendPasswordReset(email=$email)")
+        Log.d(TAG, "sendPasswordReset")
         auth.sendPasswordResetEmail(email).await()
     }
 
@@ -134,7 +132,7 @@ class AuthRepository(
             .document(uid)
             .set(mapOf("fcmToken" to token), SetOptions.merge())
             .await()
-        Log.d(TAG, "registerFcmToken success uid=$uid")
+        Log.d(TAG, "registerFcmToken success")
     }
 
     fun logOut() {
@@ -144,7 +142,7 @@ class AuthRepository(
     suspend fun deleteAccount(password: String? = null, googleIdToken: String? = null) {
         val user = auth.currentUser ?: error("Not signed in")
         val uid = user.uid
-        Log.d(TAG, "deleteAccount uid=$uid")
+        Log.d(TAG, "deleteAccount")
 
         when {
             !googleIdToken.isNullOrBlank() -> {
@@ -160,7 +158,7 @@ class AuthRepository(
         deleteUserData(uid)
         mediaRepository.deleteProfilePhoto(uid)
         user.delete().await()
-        Log.d(TAG, "deleteAccount success uid=$uid")
+        Log.d(TAG, "deleteAccount success")
     }
 
     private suspend fun deleteUserData(uid: String) {
@@ -169,6 +167,7 @@ class AuthRepository(
             .get()
             .await()
         for (doc in thoughts.documents) {
+            mediaRepository.deleteThoughtImages(uid, doc.id)
             deleteThoughtWithSubcollections(doc.reference)
         }
 
@@ -176,7 +175,7 @@ class AuthRepository(
         deleteCollectionGroupByField("feels", "uid", uid)
 
         val userRef = db.collection("users").document(uid)
-        for (sub in listOf("blocked", "hidden", "referrals", "saved")) {
+        for (sub in listOf("blocked", "hidden", "referrals", "saved", "notifications")) {
             deleteSubcollection(userRef.collection(sub))
         }
         userRef.delete().await()
@@ -303,17 +302,36 @@ class AuthRepository(
         val snap = db.collection("users").document(uid).get().await()
         if (snap.exists()) return
         val email = firebaseUser.email.orEmpty()
-        val profile = User(
-            uid = uid,
-            name = firebaseUser.displayName?.takeIf { it.isNotBlank() }
-                ?: email.substringBefore('@').ifBlank { "You" },
-            email = email,
-            photoUrl = firebaseUser.photoUrl?.toString().orEmpty(),
-            referralCode = LocalPreferences.referralCodeForUid(uid),
-            createdAt = System.currentTimeMillis(),
-        )
-        db.collection("users").document(uid).set(profile).await()
-        Log.d(TAG, "ensureUserProfile created uid=$uid")
+        db.collection("users")
+            .document(uid)
+            .set(
+                userProfileCreateData(
+                    uid = uid,
+                    name = firebaseUser.displayName?.takeIf { it.isNotBlank() }
+                        ?: email.substringBefore('@').ifBlank { "You" },
+                    email = email,
+                    city = "",
+                    photoUrl = firebaseUser.photoUrl?.toString().orEmpty(),
+                ),
+            )
+            .await()
+        Log.d(TAG, "ensureUserProfile created")
+    }
+
+    private fun userProfileCreateData(
+        uid: String,
+        name: String,
+        email: String,
+        city: String,
+        photoUrl: String,
+    ): Map<String, Any> = buildMap {
+        put("uid", uid)
+        put("name", name.trim().ifBlank { "You" })
+        put("email", email)
+        put("city", city)
+        put("referralCode", LocalPreferences.referralCodeForUid(uid))
+        put("createdAt", System.currentTimeMillis())
+        if (photoUrl.isNotBlank()) put("photoUrl", photoUrl)
     }
 
     suspend fun ensureReferralCode(uid: String) {
@@ -337,14 +355,13 @@ class AuthRepository(
         val userSnap = db.collection("users").document(newUserUid).get().await()
         if (userSnap.getString("referredBy").orEmpty().isNotBlank()) return
 
-        val referrerQuery = db.collection("users")
-            .whereEqualTo("referralCode", code)
-            .limit(1)
+        val referrerUid = db.collection("referral_codes")
+            .document(code)
             .get()
             .await()
-
-        val referrerDoc = referrerQuery.documents.firstOrNull() ?: return
-        val referrerUid = referrerDoc.id
+            .getString("uid")
+            .orEmpty()
+        if (referrerUid.isBlank()) return
         if (referrerUid == newUserUid) return
 
         db.collection("users")

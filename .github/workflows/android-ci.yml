@@ -29,3 +29,6 @@ jobs:
 
       - name: Assemble debug APK
         run: ./gradlew assembleDebug --stacktrace
+
+      - name: Assemble release APK
+        run: ./gradlew assembleRelease --stacktrace

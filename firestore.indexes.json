@@ -117,12 +117,36 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "city",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "locality",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [
     {
       "collectionGroup": "feels",
       "fieldPath": "uid",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION_GROUP"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "comments",
+      "fieldPath": "userId",
       "indexes": [
         {
           "order": "ASCENDING",

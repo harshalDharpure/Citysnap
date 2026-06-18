@@ -1,9 +1,20 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.google.services)
     alias(libs.plugins.firebase.crashlytics)
 }
+
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
+}
+
+fun signingSecret(name: String): String? =
+    (keystoreProperties.getProperty(name) ?: System.getenv(name))?.takeIf { it.isNotBlank() }
 
 android {
     namespace = "com.prod.singles_date"
@@ -23,6 +34,18 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            val releaseStoreFile = signingSecret("RELEASE_STORE_FILE")
+            if (releaseStoreFile != null) {
+                storeFile = rootProject.file(releaseStoreFile)
+                storePassword = signingSecret("RELEASE_STORE_PASSWORD")
+                keyAlias = signingSecret("RELEASE_KEY_ALIAS")
+                keyPassword = signingSecret("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             // Enable R8 so Play Console can use mapping.txt for crash deobfuscation.
@@ -33,6 +56,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfigs.getByName("release").takeIf {
+                it.storeFile != null &&
+                    it.storePassword != null &&
+                    it.keyAlias != null &&
+                    it.keyPassword != null
+            }?.let { signingConfig = it }
 
             // Some dependencies ship native libs (e.g., gRPC/Firestore). Generate symbols for Play Console.
             ndk {

@@ -25,3 +25,10 @@
 # If R8 obfuscates model properties, mapping can break in release builds.
 -keepnames class com.prod.singles_date.model.** { *; }
 -keepclassmembers class com.prod.singles_date.model.** { *; }
+
+# Remove low-value logs from release builds. Keep warnings/errors for crash diagnosis.
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+}

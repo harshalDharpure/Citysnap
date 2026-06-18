@@ -57,36 +57,103 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys();
     }
 
-    match /users/{uid} {
-      allow read: if isSignedIn();
-      allow create: if isUser(uid)
-        && request.resource.data.uid == uid
-        && request.resource.data.name is string
-        && request.resource.data.name.size() <= 60
-        && validCity(request.resource.data.get('city', ''))
-        && validLocality(request.resource.data.get('locality', ''))
-        && request.resource.data.get('referralCode', '') is string
-        && request.resource.data.get('isPremium', false) == false;
-      allow update: if isUser(uid)
-        && request.resource.data.uid == uid
+    function validUserName(data) {
+      return data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 60;
+    }
+
+    function validUserEmail(data) {
+      return !data.keys().hasAny(['email'])
+        || (data.email is string && data.email.size() <= 320);
+    }
+
+    function validUserPhotoUrl(data) {
+      return !data.keys().hasAny(['photoUrl'])
+        || (data.photoUrl is string && data.photoUrl.size() <= 2048);
+    }
+
+    function validUserReferralCode(data) {
+      return !data.keys().hasAny(['referralCode'])
+        || (data.referralCode is string && data.referralCode.size() <= 64);
+    }
+
+    function validUserCreateKeys(data) {
+      return data.keys().hasOnly([
+        'uid', 'name', 'email', 'city', 'locality', 'referralCode',
+        'photoUrl', 'createdAt', 'notifyFeels', 'notifyComments',
+        'notifyPrompts'
+      ]);
+    }
+
+    function validUserCreate(data, uid) {
+      return validUserCreateKeys(data)
+        && data.uid == uid
+        && validUserName(data)
+        && validUserEmail(data)
+        && validUserPhotoUrl(data)
+        && validUserReferralCode(data)
+        && validCity(data.get('city', ''))
+        && validLocality(data.get('locality', ''))
+        && (!data.keys().hasAny(['createdAt']) || data.createdAt is int)
+        && (!data.keys().hasAny(['notifyFeels']) || data.notifyFeels is bool)
+        && (!data.keys().hasAny(['notifyComments']) || data.notifyComments is bool)
+        && (!data.keys().hasAny(['notifyPrompts']) || data.notifyPrompts is bool);
+    }
+
+    function keepsServerUserFields() {
+      return request.resource.data.get('isPremium', false) == resource.data.get('isPremium', false)
+        && request.resource.data.get('badges', []) == resource.data.get('badges', [])
+        && request.resource.data.get('referralCount', 0) == resource.data.get('referralCount', 0)
+        && request.resource.data.get('voiceScore', 0) == resource.data.get('voiceScore', 0)
+        && request.resource.data.get('totalFeelsReceived', 0) == resource.data.get('totalFeelsReceived', 0)
+        && request.resource.data.get('savedThoughtIds', []) == resource.data.get('savedThoughtIds', []);
+    }
+
+    function validUserUpdate(uid) {
+      return request.resource.data.uid == uid
+        && keepsServerUserFields()
         && (
-          (validCity(request.resource.data.get('city', ''))
+          (changedKeys().hasOnly(['city', 'locality'])
+            && validCity(request.resource.data.get('city', ''))
             && validLocality(request.resource.data.get('locality', '')))
           || changedKeys().hasOnly(['postStreak', 'lastPostDate'])
-          || changedKeys().hasOnly(['totalCommentsWritten'])
-          || changedKeys().hasOnly(['fcmToken'])
-          || (changedKeys().hasOnly(['name'])
-            && request.resource.data.name is string
-            && request.resource.data.name.size() > 0
-            && request.resource.data.name.size() <= 60)
-          || (changedKeys().hasOnly(['photoUrl'])
-            && request.resource.data.photoUrl is string
-            && request.resource.data.photoUrl.size() <= 2048)
+          || (changedKeys().hasOnly(['fcmToken'])
+            && request.resource.data.fcmToken is string
+            && request.resource.data.fcmToken.size() <= 4096)
+          || (changedKeys().hasOnly(['name']) && validUserName(request.resource.data))
+          || (changedKeys().hasOnly(['photoUrl']) && validUserPhotoUrl(request.resource.data))
           || (changedKeys().hasOnly(['notifyFeels', 'notifyComments', 'notifyPrompts'])
             && request.resource.data.notifyFeels is bool
             && request.resource.data.notifyComments is bool
             && request.resource.data.notifyPrompts is bool)
+          || (changedKeys().hasOnly(['referralCode'])
+            && resource.data.get('referralCode', '') == ''
+            && validUserReferralCode(request.resource.data))
+          || (changedKeys().hasOnly(['referredBy'])
+            && resource.data.get('referredBy', '') == ''
+            && request.resource.data.referredBy is string
+            && request.resource.data.referredBy.size() > 0
+            && request.resource.data.referredBy != uid)
         );
+    }
+
+    function validThoughtCreateKeys(data) {
+      return data.keys().hasOnly([
+        'id', 'text', 'feelCount', 'commentCount', 'shareCount',
+        'authorId', 'authorName', 'authorPhotoUrl', 'city', 'locality',
+        'category', 'postType', 'trendingRank', 'isSponsored',
+        'sponsorLabel', 'sponsorUrl', 'imageUrls', 'imageCount',
+        'createdAt'
+      ]);
+    }
+
+    match /users/{uid} {
+      allow read: if isUser(uid);
+      allow create: if isUser(uid)
+        && validUserCreate(request.resource.data, uid);
+      allow update: if isUser(uid)
+        && validUserUpdate(uid);
       allow delete: if isUser(uid);
 
       match /blocked/{blockedUid} {
@@ -116,8 +183,19 @@ service cloud.firestore {
         allow update: if isUser(uid)
           && changedKeys().hasOnly(['read'])
           && request.resource.data.read is bool;
-        allow create, delete: if false;
+        allow delete: if isUser(uid);
+        allow create: if false;
       }
+    }
+
+    match /public_profiles/{uid} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /referral_codes/{code} {
+      allow read: if isSignedIn();
+      allow write: if false;
     }
 
     match /sponsor_leads/{leadId} {
@@ -148,10 +226,15 @@ service cloud.firestore {
       allow read: if true;
 
       allow create: if isSignedIn()
+        && validThoughtCreateKeys(request.resource.data)
         && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.id is string
+        && request.resource.data.id == thoughtId
         && request.resource.data.authorName is string
         && request.resource.data.authorName.size() > 0
         && request.resource.data.authorName.size() <= 60
+        && request.resource.data.get('authorPhotoUrl', '') is string
+        && request.resource.data.get('authorPhotoUrl', '').size() <= 2048
         && validPostContent(request.resource.data)
         && validPostType(request.resource.data)
         && (!request.resource.data.keys().hasAny(['text'])
@@ -172,7 +255,9 @@ service cloud.firestore {
         && request.resource.data.feelCount == 0
         && request.resource.data.get('commentCount', 0) == 0
         && request.resource.data.get('shareCount', 0) == 0
+        && request.resource.data.get('trendingRank', 0) == 0
         && request.resource.data.get('isSponsored', false) == false
+        && request.resource.data.get('sponsorLabel', '') == ''
         && validCity(request.resource.data.get('city', ''))
         && validLocality(request.resource.data.get('locality', ''))
         && validCategory(request.resource.data.get('category', ''));
@@ -187,41 +272,32 @@ service cloud.firestore {
           || resource.data.get('imageUrls', []).size() > 0
         );
 
-      allow update: if isSignedIn()
-        && changedKeys().hasOnly(['feelCount'])
-        && (
-          request.resource.data.feelCount == resource.data.feelCount + 1
-          || request.resource.data.feelCount == resource.data.feelCount - 1
-        );
-
-      allow update: if isSignedIn()
-        && changedKeys().hasOnly(['commentCount'])
-        && request.resource.data.commentCount == resource.data.commentCount + 1;
-
-      allow update: if isSignedIn()
-        && changedKeys().hasOnly(['shareCount'])
-        && request.resource.data.shareCount == resource.data.shareCount + 1;
-
       allow delete: if isSignedIn()
         && resource.data.authorId == request.auth.uid;
 
       match /comments/{commentId} {
         allow read: if true;
         allow create: if isSignedIn()
+          && exists(/databases/$(database)/documents/thoughts/$(thoughtId))
           && request.resource.data.userId == request.auth.uid
           && request.resource.data.text is string
           && request.resource.data.text.size() > 0
           && request.resource.data.text.size() <= 500;
         allow update: if false;
         allow delete: if isSignedIn()
-          && resource.data.userId == request.auth.uid;
+          && (
+            resource.data.userId == request.auth.uid
+            || get(/databases/$(database)/documents/thoughts/$(thoughtId)).data.authorId == request.auth.uid
+          );
       }
 
       match /feels/{uid} {
         allow read: if isSignedIn();
         allow create: if isUser(uid)
+          && exists(/databases/$(database)/documents/thoughts/$(thoughtId))
           && request.resource.data.uid == uid;
-        allow delete: if isUser(uid);
+        allow delete: if isUser(uid)
+          || get(/databases/$(database)/documents/thoughts/$(thoughtId)).data.authorId == request.auth.uid;
         allow update: if false;
       }
     }

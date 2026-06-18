@@ -3,7 +3,6 @@ package com.prod.singles_date.repository
 import android.content.Context
 import android.net.Uri
 import android.util.Log
-import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
@@ -225,6 +224,8 @@ class ThoughtRepository(
         val ownerId = snap.getString("authorId").orEmpty()
         require(ownerId == authorId) { "You can only delete your own posts" }
         mediaRepository.deleteThoughtImages(authorId, thoughtId)
+        deleteSubcollection(ref.collection("comments"))
+        deleteSubcollection(ref.collection("feels"))
         ref.delete().await()
     }
 
@@ -235,26 +236,20 @@ class ThoughtRepository(
             val existing = tx.get(feelRef)
             if (existing.exists()) {
                 tx.delete(feelRef)
-                tx.update(thoughtRef, "feelCount", FieldValue.increment(-1))
                 false
             } else {
                 tx.set(
                     feelRef,
                     mapOf("uid" to uid, "thoughtId" to thoughtId, "createdAt" to System.currentTimeMillis()),
                 )
-                tx.update(thoughtRef, "feelCount", FieldValue.increment(1))
                 true
             }
         }.await()
     }
 
     suspend fun incrementShareCount(thoughtId: String) {
+        // Share events are not trusted enough to update public ranking from the client.
         if (thoughtId.isBlank()) return
-        runCatching {
-            db.collection("thoughts").document(thoughtId)
-                .update("shareCount", FieldValue.increment(1))
-                .await()
-        }
     }
 
     fun feeledThoughtIdsFlow(uid: String): Flow<Set<String>> = callbackFlow {
@@ -293,8 +288,7 @@ class ThoughtRepository(
     }
 
     suspend fun addComment(thoughtId: String, userId: String, userName: String, text: String) {
-        val thoughtRef = db.collection("thoughts").document(thoughtId)
-        val doc = thoughtRef.collection("comments").document()
+        val doc = db.collection("thoughts").document(thoughtId).collection("comments").document()
         val comment = Comment(
             id = doc.id,
             userId = userId,
@@ -302,13 +296,7 @@ class ThoughtRepository(
             text = text,
             createdAt = System.currentTimeMillis(),
         )
-        db.runTransaction { tx ->
-            tx.set(doc, comment)
-            tx.update(thoughtRef, "commentCount", FieldValue.increment(1))
-        }.await()
-        db.collection("users").document(userId)
-            .update("totalCommentsWritten", FieldValue.increment(1))
-            .await()
+        doc.set(comment).await()
     }
 
     suspend fun reportThought(thoughtId: String, reporterUid: String, reason: String) {
@@ -341,7 +329,7 @@ class ThoughtRepository(
 
     suspend fun getUserDisplayName(uid: String): String {
         if (uid.isBlank()) return "User"
-        val snap = db.collection("users").document(uid).get().await()
+        val snap = db.collection("public_profiles").document(uid).get().await()
         return snap.getString("name")?.takeIf { it.isNotBlank() } ?: "User"
     }
 
@@ -405,7 +393,7 @@ class ThoughtRepository(
 
     suspend fun getUserProfile(uid: String): User? {
         if (uid.isBlank()) return null
-        val snap = db.collection("users").document(uid).get().await()
+        val snap = db.collection("public_profiles").document(uid).get().await()
         return snap.toObject(User::class.java)?.copy(uid = snap.id)
     }
 
@@ -500,5 +488,16 @@ class ThoughtRepository(
     private fun currentWeekId(): String {
         val cal = Calendar.getInstance()
         return "${cal.get(Calendar.YEAR)}-W${cal.get(Calendar.WEEK_OF_YEAR)}"
+    }
+
+    private suspend fun deleteSubcollection(collection: com.google.firebase.firestore.CollectionReference) {
+        var snap = collection.limit(500).get().await()
+        while (snap.documents.isNotEmpty()) {
+            val batch = db.batch()
+            snap.documents.forEach { batch.delete(it.reference) }
+            batch.commit().await()
+            if (snap.documents.size < 500) break
+            snap = collection.limit(500).get().await()
+        }
     }
 }
