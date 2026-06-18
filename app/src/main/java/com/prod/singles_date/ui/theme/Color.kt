@@ -9,27 +9,31 @@ val VioletDeep = Color(0xFF5A4BD1)
 val AccentSoft = Color(0xFFEDE9FF)
 val FeelActive = Color(0xFFE8456A)
 
-// Dark mode — Instagram-style neutral canvas
-val NightTop = Color(0xFF000000)
-val NightMid = Color(0xFF000000)
-val NightBottom = Color(0xFF000000)
-val TextPrimary = Color(0xFFF5F5F5)
-val TextMuted = Color(0xFFA8A8A8)
-val CardSurface = Color(0xFF121212)
-val CardSurfaceHi = Color(0xFF1A1A1A)
-val OutlineSoft = Color(0xFF262626)
-val DividerDark = Color(0xFF262626)
+// Dark mode — night-city canvas (warmer than pure black)
+val NightTop = Color(0xFF0A0A0F)
+val NightMid = Color(0xFF0A0A0F)
+val NightBottom = Color(0xFF0A0A0F)
+val TextPrimary = Color(0xFFF4F4F8)
+val TextMuted = Color(0xFF9B9BA8)
+val CardSurface = Color(0xFF14141C)
+val CardSurfaceHi = Color(0xFF1C1C26)
+val OutlineSoft = Color(0xFF2A2A36)
+val DividerDark = Color(0xFF252530)
 
-// Light mode — clean neutral feed
-val DayTop = Color(0xFFFAFAFA)
-val DayMid = Color(0xFFFAFAFA)
-val DayBottom = Color(0xFFFAFAFA)
-val DayTextPrimary = Color(0xFF0F0F0F)
-val DayTextMuted = Color(0xFF737373)
+// Light mode — warm paper feed
+val DayTop = Color(0xFFF7F5F2)
+val DayMid = Color(0xFFF7F5F2)
+val DayBottom = Color(0xFFF7F5F2)
+val DayTextPrimary = Color(0xFF121218)
+val DayTextMuted = Color(0xFF6E6E7A)
 val DaySurface = Color(0xFFFFFFFF)
-val DaySurfaceVariant = Color(0xFFF5F5F5)
-val DayOutline = Color(0xFFEFEFEF)
-val DividerLight = Color(0xFFEFEFEF)
+val DaySurfaceVariant = Color(0xFFF0EEEA)
+val DayOutline = Color(0xFFE8E4DE)
+val DividerLight = Color(0xFFE8E4DE)
+
+// Accent helpers
+val TrendHot = Color(0xFFFF6B35)
+val NearYou = Color(0xFF2DD4BF)
 
 // Legacy aliases
 val AppBlack = NightTop

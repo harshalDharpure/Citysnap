@@ -4,7 +4,9 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -26,46 +28,52 @@ import coil.compose.AsyncImage
 fun ThoughtImageCarousel(
     imageUrls: List<String>,
     modifier: Modifier = Modifier,
+    edgeToEdge: Boolean = false,
 ) {
     if (imageUrls.isEmpty()) return
 
     val pagerState = rememberPagerState(pageCount = { imageUrls.size })
+    val imageModifier = Modifier
+        .fillMaxWidth()
+        .then(
+            if (edgeToEdge) Modifier.aspectRatio(1f)
+            else Modifier.height(300.dp),
+        )
 
-    Box(modifier = modifier.fillMaxWidth()) {
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(300.dp),
-        ) { page ->
-            AsyncImage(
-                model = imageUrls[page],
-                contentDescription = "Post image ${page + 1}",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(300.dp)
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentScale = ContentScale.Crop,
-            )
+    Column(modifier = modifier.fillMaxWidth()) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = imageModifier,
+            ) { page ->
+                AsyncImage(
+                    model = imageUrls[page],
+                    contentDescription = "Post image ${page + 1}",
+                    modifier = imageModifier.background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentScale = ContentScale.Crop,
+                )
+            }
         }
 
         if (imageUrls.size > 1) {
             Row(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    .fillMaxWidth()
+                    .padding(vertical = 10.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 repeat(imageUrls.size) { index ->
                     Box(
                         modifier = Modifier
-                            .size(if (pagerState.currentPage == index) 7.dp else 5.dp)
+                            .padding(horizontal = 3.dp)
+                            .size(if (pagerState.currentPage == index) 7.dp else 6.dp)
                             .clip(CircleShape)
                             .background(
                                 if (pagerState.currentPage == index) {
                                     MaterialTheme.colorScheme.primary
                                 } else {
-                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
                                 },
                             ),
                     )

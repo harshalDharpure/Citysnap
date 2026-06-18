@@ -42,6 +42,19 @@ class ThoughtViewModel(
         _selectedCity.value = city
     }
 
+    /** Optional feed scope; blank = all cities (early-audience default). */
+    private val _feedCityFilter = MutableStateFlow("")
+    val feedCityFilter: StateFlow<String> = _feedCityFilter.asStateFlow()
+
+    fun setFeedCityFilter(city: String) {
+        val cityChanged = _feedCityFilter.value != city
+        _feedCityFilter.value = city
+        if (city.isBlank() || cityChanged) {
+            _feedLocalityFilter.value = ""
+        }
+        _displayLimit.value = repository.pageSize()
+    }
+
     private val _selectedLocality = MutableStateFlow("")
     val selectedLocality: StateFlow<String> = _selectedLocality.asStateFlow()
 
@@ -129,7 +142,7 @@ class ThoughtViewModel(
     private data class FeedQuery(val city: String, val locality: String, val category: String, val nonce: Int)
 
     val thoughts: StateFlow<List<Thought>> =
-        combine(_selectedCity, _feedLocalityFilter, _feedCategoryFilter, _refreshNonce) { city, locality, category, nonce ->
+        combine(_feedCityFilter, _feedLocalityFilter, _feedCategoryFilter, _refreshNonce) { city, locality, category, nonce ->
             FeedQuery(city, locality, category, nonce)
         }
             .flatMapLatest { q -> repository.thoughtsFlow(q.city, q.locality, q.category) }
@@ -307,7 +320,7 @@ class ThoughtViewModel(
                 )
             }
             .combine(blockedUids) { ctx, blocked -> ctx.copy(blocked = blocked) }
-            .combine(_selectedCity) { ctx, city -> ctx.copy(city = city) }
+            .combine(_feedCityFilter) { ctx, city -> ctx.copy(city = city) }
             .combine(_selectedLocality) { ctx, userLocality -> ctx.copy(userLocality = userLocality) }
             .combine(_feedSortMode) { ctx, sortMode -> ctx.copy(sortMode = sortMode) }
             .map { ctx -> rankVisibleThoughts(ctx) }

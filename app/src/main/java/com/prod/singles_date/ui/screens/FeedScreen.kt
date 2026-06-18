@@ -126,11 +126,9 @@ fun FeedScreen(
         thoughtViewModel.setSelectedLocality(activeLocality)
     }
 
+    val feedCityFilter by thoughtViewModel.feedCityFilter.collectAsStateWithLifecycle()
     val feedLocalityFilter by thoughtViewModel.feedLocalityFilter.collectAsStateWithLifecycle()
-    val feedCategoryFilter by thoughtViewModel.feedCategoryFilter.collectAsStateWithLifecycle()
     val feedSortMode by thoughtViewModel.feedSortMode.collectAsStateWithLifecycle()
-    val workOnlyFilter by thoughtViewModel.workOnlyFilter.collectAsStateWithLifecycle()
-    val snapsOnlyFilter by thoughtViewModel.snapsOnlyFilter.collectAsStateWithLifecycle()
     val savedThoughtIds by thoughtViewModel.savedThoughtIds.collectAsStateWithLifecycle()
     val canLoadMore by thoughtViewModel.canLoadMore.collectAsStateWithLifecycle()
     val unreadNotifications by thoughtViewModel.unreadNotificationCount.collectAsStateWithLifecycle()
@@ -189,7 +187,6 @@ fun FeedScreen(
         if (!awaitingPostResult || isPosting) return@LaunchedEffect
         if (postError == null) {
             thoughtViewModel.setFeedLocalityFilter("")
-            thoughtViewModel.setSnapsOnlyFilter(false)
             thoughtViewModel.setSearchQuery("")
             prefs.setFeedLocalityFilter("")
             showPost = false
@@ -209,10 +206,11 @@ fun FeedScreen(
     val emptyMessage = when {
         !isOnline.value -> "You're offline.\nCheck your connection and pull down to refresh."
         searchQuery.isNotBlank() -> "No posts match your search.\nTry different keywords."
-        snapsOnlyFilter -> "No photo snaps yet.\nBe the first to share one!"
-        feedLocalityFilter.isNotBlank() -> "Nothing in this area yet.\nTry All ${AppCity.displayName(activeCity)} or post first."
-        isLoggedIn -> "No thoughts yet.\nTap Snap to share one."
-        else -> "No thoughts yet."
+        feedLocalityFilter.isNotBlank() && feedCityFilter.isNotBlank() ->
+            "Nothing in this area yet.\nTry All ${AppCity.displayName(feedCityFilter)} or post first."
+        feedCityFilter.isNotBlank() -> "No posts in ${AppCity.displayName(feedCityFilter)} yet.\nBe the first to share one!"
+        isLoggedIn -> "No posts yet.\nTap Snap to share the first city moment."
+        else -> "No posts yet."
     }
 
     Scaffold(
@@ -299,42 +297,35 @@ fun FeedScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            if (activeCity.isNotBlank()) {
-                if (showSearch) {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { thoughtViewModel.setSearchQuery(it) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        placeholder = { Text(stringResource(R.string.search_hint)) },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(),
-                    )
-                }
-                FeedFilterBar(
-                    cityId = activeCity,
-                    selectedLocality = feedLocalityFilter,
-                    snapsOnly = snapsOnlyFilter,
-                    workOnly = workOnlyFilter,
-                    selectedCategory = feedCategoryFilter,
-                    sortMode = feedSortMode,
-                    onLocalitySelected = {
-                        thoughtViewModel.setFeedLocalityFilter(it)
-                        prefs.setFeedLocalityFilter(it)
-                    },
-                    onSnapsOnlySelected = { thoughtViewModel.setSnapsOnlyFilter(it) },
-                    onWorkOnlySelected = { thoughtViewModel.setWorkOnlyFilter(it) },
-                    onCategorySelected = {
-                        thoughtViewModel.setFeedCategoryFilter(it)
-                        prefs.setFeedCategoryFilter(it)
-                    },
-                    onSortModeSelected = {
-                        thoughtViewModel.setFeedSortMode(it)
-                        prefs.setFeedSortMode(if (it == FeedSortMode.HOT) "hot" else "new")
-                    },
+            if (showSearch) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { thoughtViewModel.setSearchQuery(it) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    placeholder = { Text(stringResource(R.string.search_hint)) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(),
                 )
             }
+            FeedFilterBar(
+                feedCityFilter = feedCityFilter,
+                selectedLocality = feedLocalityFilter,
+                sortMode = feedSortMode,
+                onCitySelected = { city ->
+                    thoughtViewModel.setFeedCityFilter(city)
+                    prefs.setFeedCityFilter(city)
+                },
+                onLocalitySelected = {
+                    thoughtViewModel.setFeedLocalityFilter(it)
+                    prefs.setFeedLocalityFilter(it)
+                },
+                onSortModeSelected = {
+                    thoughtViewModel.setFeedSortMode(it)
+                    prefs.setFeedSortMode(if (it == FeedSortMode.HOT) "hot" else "new")
+                },
+            )
 
             if (showFeedTips) {
                 FeedTipsBanner(

@@ -24,7 +24,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -88,6 +90,7 @@ fun PostDialog(
         !isPosting && !categoryRequired
     val scrollState = rememberScrollState()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val slotsLeft = MediaRepository.MAX_IMAGES_PER_POST - imagePicker.selectedImages.size
 
     val postLabel = when {
         isPosting && imagePicker.selectedImages.isNotEmpty() -> "Posting photos…"
@@ -190,6 +193,35 @@ fun PostDialog(
                     )
                 }
 
+                if (!isNote) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        MediaSourceButton(
+                            label = "Camera",
+                            icon = Icons.Filled.CameraAlt,
+                            enabled = !isPosting && slotsLeft > 0,
+                            onClick = imagePicker.onTakePhoto,
+                            modifier = Modifier.weight(1f),
+                        )
+                        MediaSourceButton(
+                            label = "Gallery",
+                            icon = Icons.Filled.PhotoLibrary,
+                            enabled = !isPosting && slotsLeft > 0,
+                            onClick = imagePicker.onChooseGallery,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    if (slotsLeft < MediaRepository.MAX_IMAGES_PER_POST) {
+                        Text(
+                            text = "${imagePicker.selectedImages.size}/${MediaRepository.MAX_IMAGES_PER_POST} photos",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
                 TextField(
                     value = current,
                     onValueChange = { textState.value = it.take(maxLen) },
@@ -231,7 +263,7 @@ fun PostDialog(
                     modifier = Modifier.align(Alignment.End),
                 )
 
-                if (!isNote) {
+                if (!isNote && imagePicker.selectedImages.isNotEmpty()) {
                     Row(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -261,7 +293,7 @@ fun PostDialog(
                                 }
                             }
                         }
-                        if (!isPosting && imagePicker.selectedImages.size < MediaRepository.MAX_IMAGES_PER_POST) {
+                        if (!isPosting && slotsLeft > 0) {
                             Surface(
                                 onClick = imagePicker.onAddPhotoClick,
                                 shape = RoundedCornerShape(14.dp),
@@ -274,7 +306,7 @@ fun PostDialog(
                                     verticalArrangement = Arrangement.Center,
                                 ) {
                                     Icon(Icons.Filled.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                    Text("Photo", style = MaterialTheme.typography.labelSmall)
+                                    Text("More", style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }
@@ -318,9 +350,59 @@ fun PostDialog(
         AlertDialog(
             onDismissRequest = imagePicker.onDismissSourceSheet,
             title = { Text("Add a photo") },
+            text = { Text("Take a new snap or pick from your gallery.") },
             confirmButton = { TextButton(onClick = imagePicker.onTakePhoto) { Text("Camera") } },
             dismissButton = { TextButton(onClick = imagePicker.onChooseGallery) { Text("Gallery") } },
         )
+    }
+
+    val pickerMessage = imagePicker.pickerMessage
+    if (pickerMessage != null) {
+        AlertDialog(
+            onDismissRequest = imagePicker.onDismissPickerMessage,
+            title = { Text("Photo access") },
+            text = { Text(pickerMessage) },
+            confirmButton = {
+                TextButton(onClick = imagePicker.onDismissPickerMessage) { Text("OK") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun MediaSourceButton(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (enabled) 1f else 0.5f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
+        modifier = modifier.height(52.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
     }
 }
 

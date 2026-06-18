@@ -19,21 +19,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.prod.singles_date.model.AppCity
 import com.prod.singles_date.model.AppLocality
-import com.prod.singles_date.model.ThoughtCategory
+import com.prod.singles_date.ui.theme.TrendHot
 import com.prod.singles_date.util.FeedSortMode
 
 @Composable
 fun FeedFilterBar(
-    cityId: String,
+    feedCityFilter: String,
     selectedLocality: String,
-    snapsOnly: Boolean,
-    workOnly: Boolean,
-    selectedCategory: String,
     sortMode: FeedSortMode,
+    onCitySelected: (String) -> Unit,
     onLocalitySelected: (String) -> Unit,
-    onSnapsOnlySelected: (Boolean) -> Unit,
-    onWorkOnlySelected: (Boolean) -> Unit,
-    onCategorySelected: (String) -> Unit,
     onSortModeSelected: (FeedSortMode) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -52,6 +47,10 @@ fun FeedFilterBar(
                 selected = sortMode == FeedSortMode.HOT,
                 onClick = { onSortModeSelected(FeedSortMode.HOT) },
                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = TrendHot.copy(alpha = 0.16f),
+                    activeContentColor = TrendHot,
+                ),
             ) { Text("Hot") }
         }
 
@@ -63,68 +62,44 @@ fun FeedFilterBar(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             FilterChip(
-                selected = selectedLocality.isBlank(),
-                onClick = { onLocalitySelected("") },
-                label = { Text("All ${AppCity.displayName(cityId)}") },
+                selected = feedCityFilter.isBlank(),
+                onClick = { onCitySelected("") },
+                label = { Text("All cities") },
                 colors = filterChipColors(),
             )
-            AppLocality.localitiesForCity(cityId).forEach { localityId ->
+            AppCity.ALL.forEach { cityId ->
                 FilterChip(
-                    selected = selectedLocality == localityId,
-                    onClick = { onLocalitySelected(localityId) },
-                    label = { Text(AppLocality.displayName(localityId)) },
+                    selected = feedCityFilter == cityId,
+                    onClick = { onCitySelected(if (feedCityFilter == cityId) "" else cityId) },
+                    label = { Text(AppCity.displayName(cityId)) },
                     colors = filterChipColors(),
                 )
             }
         }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            FilterChip(
-                selected = selectedCategory.isBlank() && !workOnly,
-                onClick = {
-                    onWorkOnlySelected(false)
-                    onCategorySelected("")
-                },
-                label = { Text("All topics") },
-                colors = filterChipColors(),
-            )
-            FilterChip(
-                selected = workOnly,
-                onClick = { onWorkOnlySelected(!workOnly) },
-                label = { Text("💼 Work & Jobs") },
-                colors = filterChipColors(),
-            )
-            listOf(
-                ThoughtCategory.TRAFFIC,
-                ThoughtCategory.RENT,
-                ThoughtCategory.STARTUP,
-                ThoughtCategory.FOOD,
-                ThoughtCategory.LIFE,
-            ).forEach { cat ->
+        if (feedCityFilter.isNotBlank()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 FilterChip(
-                    selected = selectedCategory == cat,
-                    onClick = {
-                        onWorkOnlySelected(false)
-                        onCategorySelected(if (selectedCategory == cat) "" else cat)
-                    },
-                    label = {
-                        Text("${ThoughtCategory.emoji(cat)} ${ThoughtCategory.displayName(cat)}")
-                    },
+                    selected = selectedLocality.isBlank(),
+                    onClick = { onLocalitySelected("") },
+                    label = { Text("All ${AppCity.displayName(feedCityFilter)}") },
                     colors = filterChipColors(),
                 )
+                AppLocality.localitiesForCity(feedCityFilter).forEach { localityId ->
+                    FilterChip(
+                        selected = selectedLocality == localityId,
+                        onClick = { onLocalitySelected(localityId) },
+                        label = { Text(AppLocality.displayName(localityId)) },
+                        colors = filterChipColors(),
+                    )
+                }
             }
-            FilterChip(
-                selected = snapsOnly,
-                onClick = { onSnapsOnlySelected(!snapsOnly) },
-                label = { Text("📸 Snaps") },
-                colors = filterChipColors(),
-            )
         }
     }
 }

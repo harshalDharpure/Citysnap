@@ -12,10 +12,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.prod.singles_date.model.AppCity
 import com.prod.singles_date.model.CityMood
+import com.prod.singles_date.ui.theme.VioletBright
 
 @Composable
 fun CityMoodCard(
@@ -26,8 +29,16 @@ fun CityMoodCard(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .drawBehind {
+                drawLine(
+                    color = VioletBright.copy(alpha = 0.7f),
+                    start = Offset(0f, 0f),
+                    end = Offset(0f, size.height),
+                    strokeWidth = 3.dp.toPx(),
+                )
+            }
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+            .padding(start = 10.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(

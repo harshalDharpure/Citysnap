@@ -40,10 +40,10 @@ val Typography = Typography(
     ),
     titleLarge = TextStyle(
         fontFamily = Sans,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 22.sp,
-        lineHeight = 28.sp,
-        letterSpacing = 0.sp,
+        fontWeight = FontWeight.Bold,
+        fontSize = 20.sp,
+        lineHeight = 26.sp,
+        letterSpacing = (-0.15).sp,
     ),
     titleMedium = TextStyle(
         fontFamily = Sans,

@@ -259,8 +259,12 @@ fun AppNavGraph(
             }
 
             LaunchedEffect(Unit) {
-                thoughtViewModel.setFeedLocalityFilter(prefs.getFeedLocalityFilter())
-                thoughtViewModel.setFeedCategoryFilter(prefs.getFeedCategoryFilter())
+                val city = prefs.getFeedCityFilter()
+                val locality = prefs.getFeedLocalityFilter()
+                thoughtViewModel.setFeedCityFilter(city)
+                if (city.isNotBlank() && locality.isNotBlank()) {
+                    thoughtViewModel.setFeedLocalityFilter(locality)
+                }
             }
 
             FeedScreen(

@@ -68,6 +68,7 @@ import com.prod.singles_date.model.AppCity
 import com.prod.singles_date.model.Badge
 import com.prod.singles_date.model.ThemeMode
 import com.prod.singles_date.model.Thought
+import com.prod.singles_date.model.User
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -106,11 +107,11 @@ fun ProfileScreen(
     onThemeModeChange: (ThemeMode) -> Unit = {},
 ) {
     val firebaseUser by authViewModel.firebaseUser.collectAsStateWithLifecycle()
-    val profile by authViewModel.currentUser.collectAsStateWithLifecycle()
+    val firestoreProfile by authViewModel.currentUser.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val prefs = remember { LocalPreferences(context) }
 
     val fu = firebaseUser
-    val user = profile
-
     if (fu == null) {
         LaunchedEffect(Unit) { onLoggedOut() }
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -122,19 +123,18 @@ fun ProfileScreen(
         }
         return
     }
-    if (user == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                text = "Loading profile…",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        return
-    }
 
     LaunchedEffect(fu.uid) {
         profileViewModel.setUid(fu.uid)
+    }
+    LaunchedEffect(fu.uid, firestoreProfile) {
+        if (firestoreProfile == null) {
+            authViewModel.ensureUserProfile()
+        }
+    }
+
+    val user = remember(fu, firestoreProfile, prefs) {
+        User.fromFirebase(fu, firestoreProfile, prefs)
     }
 
     val myThoughts by profileViewModel.myThoughts.collectAsStateWithLifecycle()
@@ -145,7 +145,6 @@ fun ProfileScreen(
     var deleteError by remember { mutableStateOf("") }
     var showEditName by remember { mutableStateOf(false) }
     var editNameDraft by remember(user.name) { mutableStateOf(user.name) }
-    val context = LocalContext.current
     val isUploadingPhoto by authViewModel.isUploadingPhoto.collectAsStateWithLifecycle()
     val isBusy by authViewModel.isBusy.collectAsStateWithLifecycle()
     val authMessage by authViewModel.authMessage.collectAsStateWithLifecycle()

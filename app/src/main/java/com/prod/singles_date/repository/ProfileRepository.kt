@@ -25,15 +25,17 @@ class ProfileRepository(
                     trySend(null)
                     return@addSnapshotListener
                 }
-                trySend(snapshot?.toObject(User::class.java))
+                trySend(snapshot?.toObject(User::class.java)?.let { profile ->
+                    if (profile.uid.isBlank()) profile.copy(uid = uid) else profile
+                })
             }
         awaitClose { reg.remove() }
     }
 
     fun myThoughtsFlow(uid: String): Flow<List<Thought>> = callbackFlow {
-        // Avoid composite index requirement (where + orderBy) by sorting client-side.
         val reg = db.collection("thoughts")
             .whereEqualTo("authorId", uid)
+            .limit(100)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.e(TAG, "myThoughtsFlow($uid) listener error", error)

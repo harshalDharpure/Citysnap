@@ -1,6 +1,8 @@
 package com.prod.singles_date.model
 
 import androidx.annotation.Keep
+import com.google.firebase.auth.FirebaseUser
+import com.prod.singles_date.data.LocalPreferences
 
 @Keep
 data class User(
@@ -26,4 +28,28 @@ data class User(
     val photoUrl: String = "",
     val savedThoughtIds: List<String> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
-)
+) {
+    companion object {
+        /** Shown instantly while Firestore profile loads or if the doc is missing. */
+        fun fromFirebase(
+            firebaseUser: FirebaseUser,
+            firestore: User? = null,
+            prefs: LocalPreferences? = null,
+        ): User {
+            if (firestore != null && firestore.uid.isNotBlank()) return firestore
+            val email = firebaseUser.email.orEmpty()
+            return User(
+                uid = firebaseUser.uid,
+                name = firebaseUser.displayName?.takeIf { it.isNotBlank() }
+                    ?: email.substringBefore('@').ifBlank { "You" },
+                email = email,
+                city = prefs?.getGuestCity().orEmpty(),
+                locality = prefs?.getGuestLocality().orEmpty(),
+                photoUrl = firestore?.photoUrl?.takeIf { it.isNotBlank() }
+                    ?: firebaseUser.photoUrl?.toString().orEmpty(),
+                referralCode = firestore?.referralCode?.takeIf { it.isNotBlank() }
+                    ?: LocalPreferences.referralCodeForUid(firebaseUser.uid),
+            )
+        }
+    }
+}

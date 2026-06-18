@@ -62,6 +62,12 @@ class LocalPreferences(context: Context) {
         prefs.edit().putString(KEY_FEED_LOCALITY, localityId).apply()
     }
 
+    fun getFeedCityFilter(): String = prefs.getString(KEY_FEED_CITY, "").orEmpty()
+
+    fun setFeedCityFilter(cityId: String) {
+        prefs.edit().putString(KEY_FEED_CITY, cityId).apply()
+    }
+
     fun getFeedCategoryFilter(): String = prefs.getString(KEY_FEED_CATEGORY, "").orEmpty()
 
     fun setFeedCategoryFilter(categoryId: String) {
@@ -112,6 +118,7 @@ class LocalPreferences(context: Context) {
         private const val KEY_PENDING_REFERRAL = "pending_referral"
         private const val KEY_LAST_PROMPT_DAY = "last_prompt_day"
         private const val KEY_FEED_LOCALITY = "feed_locality_filter"
+        private const val KEY_FEED_CITY = "feed_city_filter"
         private const val KEY_FEED_CATEGORY = "feed_category_filter"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_NOTIFY_FEELS = "notify_feels"

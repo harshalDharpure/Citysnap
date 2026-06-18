@@ -242,6 +242,14 @@ class AuthViewModel(
         }
     }
 
+    /** Creates a Firestore profile if missing (e.g. legacy Google accounts). */
+    fun ensureUserProfile() {
+        val firebase = firebaseUser.value ?: authRepository.currentUser() ?: return
+        viewModelScope.launch {
+            runCatching { authRepository.ensureUserProfile(firebase) }
+        }
+    }
+
     /** Persist city and locality for a signed-in user. */
     fun saveOnboarding(city: String, locality: String, onDone: () -> Unit = {}) {
         val uid = firebaseUser.value?.uid ?: authRepository.currentUser()?.uid

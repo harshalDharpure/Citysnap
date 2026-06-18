@@ -297,6 +297,25 @@ class AuthRepository(
             .await()
     }
 
+    suspend fun ensureUserProfile(firebaseUser: FirebaseUser) {
+        val uid = firebaseUser.uid
+        if (uid.isBlank()) return
+        val snap = db.collection("users").document(uid).get().await()
+        if (snap.exists()) return
+        val email = firebaseUser.email.orEmpty()
+        val profile = User(
+            uid = uid,
+            name = firebaseUser.displayName?.takeIf { it.isNotBlank() }
+                ?: email.substringBefore('@').ifBlank { "You" },
+            email = email,
+            photoUrl = firebaseUser.photoUrl?.toString().orEmpty(),
+            referralCode = LocalPreferences.referralCodeForUid(uid),
+            createdAt = System.currentTimeMillis(),
+        )
+        db.collection("users").document(uid).set(profile).await()
+        Log.d(TAG, "ensureUserProfile created uid=$uid")
+    }
+
     suspend fun ensureReferralCode(uid: String) {
         if (uid.isBlank()) return
         val snap = db.collection("users").document(uid).get().await()
