@@ -16,6 +16,7 @@ Repo: [github.com/harshalDharpure/Citysnap](https://github.com/harshalDharpure/C
 | Privacy policy | https://harshalDharpure.github.io/Citysnap/privacy.html |
 | Privacy (alt) | https://harshalDharpure.github.io/Citysnap/ |
 | Child safety | https://harshalDharpure.github.io/Citysnap/child-safety.html |
+| Delete account | https://harshalDharpure.github.io/Citysnap/delete-account.html |
 
 Push changes to `docs/` on the default branch; GitHub redeploys automatically.
 
@@ -38,6 +39,7 @@ firebase deploy --only firestore:rules
 
 - **Privacy policy URL:** `https://harshalDharpure.github.io/Citysnap/privacy.html`
 - **Child safety URL:** `https://harshalDharpure.github.io/Citysnap/child-safety.html`
+- **Delete account URL:** `https://harshalDharpure.github.io/Citysnap/delete-account.html`
 - **Contact email:** `citysnap.play.review@gmail.com`
 - **Data safety:** Firebase Auth/Firestore, AWS S3 photos, FCM token, Analytics, Crashlytics — no ads, no AD_ID
 - **Content rating:** user-generated content; declare moderation (report/block)
