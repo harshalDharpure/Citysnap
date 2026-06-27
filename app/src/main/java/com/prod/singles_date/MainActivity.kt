@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import dagger.hilt.android.AndroidEntryPoint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
@@ -28,6 +29,7 @@ import com.prod.singles_date.navigation.AppNavGraph
 import com.prod.singles_date.ui.theme.CitysnapTheme
 import com.prod.singles_date.util.AppLinks
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     private val requestNotificationPermission =

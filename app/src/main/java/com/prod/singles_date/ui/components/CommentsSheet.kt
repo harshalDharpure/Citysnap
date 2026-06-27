@@ -3,6 +3,7 @@ package com.prod.singles_date.ui.components
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -40,6 +41,8 @@ fun CommentsSheet(
     onDismiss: () -> Unit,
     onPostComment: (String) -> Unit,
     onReportComment: (String) -> Unit,
+    onEditComment: ((String, String) -> Unit)? = null,
+    onDeleteComment: ((String) -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var draft by remember { mutableStateOf("") }
@@ -96,7 +99,20 @@ fun CommentsSheet(
                                     style = MaterialTheme.typography.labelLarge,
                                     color = MaterialTheme.colorScheme.onSurface,
                                 )
-                                if (comment.userId != currentUserId) {
+                                if (comment.userId == currentUserId) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        if (onEditComment != null) {
+                                            TextButton(onClick = { onEditComment(comment.id, comment.text) }) {
+                                                Text("Edit")
+                                            }
+                                        }
+                                        if (onDeleteComment != null) {
+                                            TextButton(onClick = { onDeleteComment(comment.id) }) {
+                                                Text("Delete", color = MaterialTheme.colorScheme.error)
+                                            }
+                                        }
+                                    }
+                                } else {
                                     TextButton(onClick = { onReportComment(comment.id) }) {
                                         Text("Report", color = MaterialTheme.colorScheme.error)
                                     }

@@ -7,8 +7,10 @@ object Routes {
     const val Login = "login"
     const val Signup = "signup"
     const val Feed = "feed"
+    const val Messages = "messages"
     const val Profile = "profile"
     const val PostDetail = "post_detail/{thoughtId}"
+    const val Chat = "chat/{conversationId}/{otherUid}"
     const val UserProfile = "user_profile/{uid}"
     const val BlockedUsers = "blocked_users"
     const val NotificationSettings = "notification_settings"
@@ -20,4 +22,5 @@ object Routes {
 
     fun postDetail(thoughtId: String) = "post_detail/$thoughtId"
     fun userProfile(uid: String) = "user_profile/$uid"
+    fun chat(conversationId: String, otherUid: String) = "chat/$conversationId/$otherUid"
 }

@@ -18,8 +18,9 @@ class AppCityTest {
     }
 
     @Test
-    fun isExpansionUnlocked_onlyBangaloreAtRollout() {
-        assertTrue(AppCity.isExpansionUnlocked(AppCity.BANGALORE))
-        assertFalse(AppCity.isExpansionUnlocked(AppCity.PUNE))
+    fun isExpansionUnlocked_allLaunchCities() {
+        AppCity.ALL.forEach { city ->
+            assertTrue(AppCity.isExpansionUnlocked(city))
+        }
     }
 }

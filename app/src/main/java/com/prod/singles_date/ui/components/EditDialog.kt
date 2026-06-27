@@ -32,8 +32,11 @@ fun EditDialog(
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
     allowEmptySave: Boolean = false,
+    title: String = "Edit thought",
+    subtitle: String = "Only you can update your own words",
+    maxLength: Int = ThoughtViewModel.MAX_THOUGHT_LENGTH,
 ) {
-    val maxLen = ThoughtViewModel.MAX_THOUGHT_LENGTH
+    val maxLen = maxLength
     val textState = remember(initialText) { mutableStateOf(initialText.take(maxLen)) }
     val current = textState.value.take(maxLen)
     val canSave = current.trim().isNotEmpty() || allowEmptySave
@@ -52,12 +55,12 @@ fun EditDialog(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    text = "Edit thought",
+                    text = title,
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    text = "Only you can update your own words",
+                    text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

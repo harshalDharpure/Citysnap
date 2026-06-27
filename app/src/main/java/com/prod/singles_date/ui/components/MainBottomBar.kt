@@ -7,9 +7,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -26,6 +29,7 @@ import androidx.compose.ui.unit.dp
 
 enum class MainTab {
     Home,
+    Messages,
     Snap,
     City,
     Profile,
@@ -37,6 +41,7 @@ fun MainBottomBar(
     profilePhotoUrl: String,
     profileName: String,
     onTabSelected: (MainTab) -> Unit,
+    messagesUnreadCount: Int = 0,
     modifier: Modifier = Modifier,
 ) {
     NavigationBar(
@@ -52,11 +57,12 @@ fun MainBottomBar(
             onClick = { onTabSelected(MainTab.Home) },
         )
         BottomBarItem(
-            tab = MainTab.City,
+            tab = MainTab.Messages,
             selectedTab = selectedTab,
-            icon = Icons.Filled.LocationOn,
-            label = "City",
-            onClick = { onTabSelected(MainTab.City) },
+            icon = Icons.Filled.Chat,
+            label = "Chats",
+            onClick = { onTabSelected(MainTab.Messages) },
+            badgeCount = messagesUnreadCount,
         )
         NavigationBarItem(
             selected = false,
@@ -94,6 +100,13 @@ fun MainBottomBar(
             ),
         )
         BottomBarItem(
+            tab = MainTab.City,
+            selectedTab = selectedTab,
+            icon = Icons.Filled.LocationOn,
+            label = "City",
+            onClick = { onTabSelected(MainTab.City) },
+        )
+        BottomBarItem(
             tab = MainTab.Profile,
             selectedTab = selectedTab,
             icon = Icons.Filled.Person,
@@ -114,25 +127,43 @@ private fun RowScope.BottomBarItem(
     onClick: () -> Unit,
     profilePhotoUrl: String = "",
     profileName: String = "",
+    badgeCount: Int = 0,
 ) {
     val selected = selectedTab == tab
     NavigationBarItem(
         selected = selected,
         onClick = onClick,
         icon = {
-            if (tab == MainTab.Profile && profilePhotoUrl.isNotBlank()) {
-                UserAvatar(
-                    name = profileName,
-                    photoUrl = profilePhotoUrl,
-                    size = 26.dp,
-                    showAccentRing = selected,
-                )
+            val iconContent = @Composable {
+                if (tab == MainTab.Profile && profilePhotoUrl.isNotBlank()) {
+                    UserAvatar(
+                        name = profileName,
+                        photoUrl = profilePhotoUrl,
+                        size = 26.dp,
+                        showAccentRing = selected,
+                    )
+                } else {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = label,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+            if (badgeCount > 0) {
+                BadgedBox(
+                    badge = {
+                        Badge {
+                            Text(
+                                text = if (badgeCount > 9) "9+" else badgeCount.toString(),
+                            )
+                        }
+                    },
+                ) {
+                    iconContent()
+                }
             } else {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = label,
-                    modifier = Modifier.size(24.dp),
-                )
+                iconContent()
             }
         },
         label = {

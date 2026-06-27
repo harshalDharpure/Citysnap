@@ -84,6 +84,7 @@ class AuthRepository(
                 )
                 .await()
         } else {
+            ensureUserProfile(u)
             ensureReferralCode(u.uid)
         }
         Log.d(TAG, "signInWithGoogle success new=$isNewUser")
@@ -99,6 +100,7 @@ class AuthRepository(
         notifyFeels: Boolean,
         notifyComments: Boolean,
         notifyPrompts: Boolean,
+        notifyMessages: Boolean,
     ) {
         if (uid.isBlank()) return
         db.collection("users")
@@ -108,6 +110,7 @@ class AuthRepository(
                     "notifyFeels" to notifyFeels,
                     "notifyComments" to notifyComments,
                     "notifyPrompts" to notifyPrompts,
+                    "notifyMessages" to notifyMessages,
                     "uid" to uid,
                 ),
                 SetOptions.merge(),
@@ -122,6 +125,7 @@ class AuthRepository(
             notifyFeels = prefs.getNotifyFeels(),
             notifyComments = prefs.getNotifyComments(),
             notifyPrompts = prefs.getNotifyPrompts(),
+            notifyMessages = true,
         )
     }
 
@@ -176,7 +180,7 @@ class AuthRepository(
 
         val userRef = db.collection("users").document(uid)
         for (sub in listOf("blocked", "hidden", "referrals", "saved", "notifications")) {
-            deleteSubcollection(userRef.collection(sub))
+            deleteSubcollectionBestEffort(userRef.collection(sub))
         }
         userRef.delete().await()
     }
@@ -222,6 +226,15 @@ class AuthRepository(
             if (snap.documents.size < 500) break
             snap = collection.limit(500).get().await()
         }
+    }
+
+    private suspend fun deleteSubcollectionBestEffort(
+        collection: com.google.firebase.firestore.CollectionReference,
+    ) {
+        runCatching { deleteSubcollection(collection) }
+            .onFailure { e ->
+                Log.w(TAG, "deleteSubcollectionBestEffort failed path=${collection.path}", e)
+            }
     }
 
     suspend fun updateUserCity(uid: String, city: String) {
@@ -337,6 +350,7 @@ class AuthRepository(
     suspend fun ensureReferralCode(uid: String) {
         if (uid.isBlank()) return
         val snap = db.collection("users").document(uid).get().await()
+        if (!snap.exists()) return
         val existing = snap.getString("referralCode").orEmpty()
         if (existing.isNotBlank()) return
         db.collection("users")

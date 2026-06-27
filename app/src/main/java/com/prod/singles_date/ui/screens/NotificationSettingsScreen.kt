@@ -36,23 +36,31 @@ fun NotificationSettingsScreen(
     serverNotifyFeels: Boolean? = null,
     serverNotifyComments: Boolean? = null,
     serverNotifyPrompts: Boolean? = null,
-    onUpdatePrefs: (notifyFeels: Boolean, notifyComments: Boolean, notifyPrompts: Boolean) -> Unit = { _, _, _ -> },
+    serverNotifyMessages: Boolean? = null,
+    onUpdatePrefs: (
+        notifyFeels: Boolean,
+        notifyComments: Boolean,
+        notifyPrompts: Boolean,
+        notifyMessages: Boolean,
+    ) -> Unit = { _, _, _, _ -> },
 ) {
     val context = LocalContext.current
     val prefs = remember { LocalPreferences(context) }
     val initialFeels = serverNotifyFeels ?: prefs.getNotifyFeels()
     val initialComments = serverNotifyComments ?: prefs.getNotifyComments()
     val initialPrompts = serverNotifyPrompts ?: prefs.getNotifyPrompts()
+    val initialMessages = serverNotifyMessages ?: true
     var notifyFeels by remember(uid, serverNotifyFeels) { mutableStateOf(initialFeels) }
     var notifyComments by remember(uid, serverNotifyComments) { mutableStateOf(initialComments) }
     var notifyPrompts by remember(uid, serverNotifyPrompts) { mutableStateOf(initialPrompts) }
+    var notifyMessages by remember(uid, serverNotifyMessages) { mutableStateOf(initialMessages) }
 
-    fun persist(feels: Boolean, comments: Boolean, prompts: Boolean) {
+    fun persist(feels: Boolean, comments: Boolean, prompts: Boolean, messages: Boolean) {
         prefs.setNotifyFeels(feels)
         prefs.setNotifyComments(comments)
         prefs.setNotifyPrompts(prompts)
         if (!uid.isNullOrBlank()) {
-            onUpdatePrefs(feels, comments, prompts)
+            onUpdatePrefs(feels, comments, prompts, messages)
         }
     }
 
@@ -92,7 +100,7 @@ fun NotificationSettingsScreen(
                 checked = notifyFeels,
                 onCheckedChange = {
                     notifyFeels = it
-                    persist(it, notifyComments, notifyPrompts)
+                    persist(it, notifyComments, notifyPrompts, notifyMessages)
                 },
             )
             NotificationToggle(
@@ -101,7 +109,16 @@ fun NotificationSettingsScreen(
                 checked = notifyComments,
                 onCheckedChange = {
                     notifyComments = it
-                    persist(notifyFeels, it, notifyPrompts)
+                    persist(notifyFeels, it, notifyPrompts, notifyMessages)
+                },
+            )
+            NotificationToggle(
+                title = "Direct messages",
+                subtitle = "When someone sends you a private message",
+                checked = notifyMessages,
+                onCheckedChange = {
+                    notifyMessages = it
+                    persist(notifyFeels, notifyComments, notifyPrompts, it)
                 },
             )
             NotificationToggle(
@@ -110,7 +127,7 @@ fun NotificationSettingsScreen(
                 checked = notifyPrompts,
                 onCheckedChange = {
                     notifyPrompts = it
-                    persist(notifyFeels, notifyComments, it)
+                    persist(notifyFeels, notifyComments, it, notifyMessages)
                 },
             )
         }

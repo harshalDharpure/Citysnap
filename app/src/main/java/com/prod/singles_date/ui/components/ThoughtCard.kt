@@ -38,6 +38,7 @@ import com.prod.singles_date.model.PostType
 import com.prod.singles_date.model.Thought
 import com.prod.singles_date.model.ThoughtCategory
 import com.prod.singles_date.ui.theme.TrendHot
+import com.prod.singles_date.ui.util.formatIgCountFull
 import com.prod.singles_date.util.FeedRanking
 import java.util.concurrent.TimeUnit
 
@@ -177,6 +178,19 @@ fun ThoughtCard(
             onSave = onSave,
             isSaved = isSaved,
         )
+
+        if (showFeelButton && thought.feelCount > 0) {
+            Text(
+                text = if (thought.feelCount == 1) {
+                    "1 feel"
+                } else {
+                    "${formatIgCountFull(thought.feelCount)} feels"
+                },
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
+            )
+        }
 
         // Caption below actions (image posts)
         if (hasImages && thought.text.isNotBlank()) {

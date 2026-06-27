@@ -30,19 +30,17 @@ fun CityPicker(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        val sorted = AppCity.ALL.sortedBy { if (it == AppCity.BANGALORE) 0 else 1 }
-        sorted.forEach { cityId ->
-            val unlocked = AppCity.isExpansionUnlocked(cityId)
-            val label = when {
-                cityId == AppCity.BANGALORE -> "${AppCity.displayName(cityId)} ★ Live"
-                unlocked -> AppCity.displayName(cityId)
-                else -> "${AppCity.displayName(cityId)} — Coming soon"
+        AppCity.ALL.forEach { cityId ->
+            val label = if (cityId == AppCity.MARKETING_FOCUS) {
+                "${AppCity.displayName(cityId)} ★"
+            } else {
+                AppCity.displayName(cityId)
             }
             CityOptionChip(
                 label = label,
                 selected = selectedCity == cityId,
-                enabled = unlocked,
-                onClick = { if (unlocked) onCitySelected(cityId) },
+                enabled = true,
+                onClick = { onCitySelected(cityId) },
             )
         }
     }

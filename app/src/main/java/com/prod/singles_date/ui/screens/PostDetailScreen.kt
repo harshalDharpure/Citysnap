@@ -1,5 +1,6 @@
 package com.prod.singles_date.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -23,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -43,14 +46,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.prod.singles_date.model.ThoughtLoadState
 import com.prod.singles_date.model.User
+import com.prod.singles_date.ui.components.EditDialog
 import com.prod.singles_date.ui.components.ReportReasonDialog
 import com.prod.singles_date.ui.components.ThoughtCard
 import com.prod.singles_date.ui.util.copyThoughtToClipboard
 import com.prod.singles_date.ui.util.shareThoughtAsImage
 import com.prod.singles_date.ui.util.shareThoughtToWhatsApp
 import com.prod.singles_date.viewmodel.ThoughtViewModel
-import kotlinx.coroutines.delay
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,6 +70,7 @@ fun PostDetailScreen(
     activeLocality: String,
     onBack: () -> Unit,
     onRequireLogin: () -> Unit,
+    onMessageAuthor: ((authorId: String) -> Unit)? = null,
 ) {
     LaunchedEffect(thoughtId) {
         thoughtViewModel.setActiveDetailThoughtId(thoughtId)
@@ -72,23 +79,26 @@ fun PostDetailScreen(
         onDispose { thoughtViewModel.clearActiveDetailThoughtId() }
     }
 
-    val thought by thoughtViewModel.detailThought.collectAsStateWithLifecycle()
+    val loadState by thoughtViewModel.detailLoadState.collectAsStateWithLifecycle()
     val comments by thoughtViewModel.detailComments.collectAsStateWithLifecycle()
     val feeledIds by thoughtViewModel.feeledThoughtIds.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     var draft by remember { mutableStateOf("") }
     var reportPostId by remember { mutableStateOf<String?>(null) }
     var reportComment by remember { mutableStateOf<Pair<String, String>?>(null) }
-    var awaitingLoad by remember(thoughtId) { mutableStateOf(true) }
+    var editingCommentId by remember { mutableStateOf<String?>(null) }
+    var pendingDeleteCommentId by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(thoughtId) {
-        awaitingLoad = true
-        delay(2_500)
-        awaitingLoad = false
-    }
-    LaunchedEffect(thought) {
-        if (thought != null) awaitingLoad = false
+    BackHandler(enabled = reportPostId != null || reportComment != null ||
+        editingCommentId != null || pendingDeleteCommentId != null) {
+        when {
+            reportPostId != null -> reportPostId = null
+            reportComment != null -> reportComment = null
+            editingCommentId != null -> editingCommentId = null
+            pendingDeleteCommentId != null -> pendingDeleteCommentId = null
+        }
     }
 
     Scaffold(
@@ -105,9 +115,9 @@ fun PostDetailScreen(
             )
         },
     ) { innerPadding ->
-        when {
-            thought != null -> {
-                val t = thought!!
+        when (val state = loadState) {
+            is ThoughtLoadState.Ready -> {
+                val t = state.thought
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
@@ -130,15 +140,17 @@ fun PostDetailScreen(
                                 thoughtViewModel.incrementShareCount(t.id)
                             },
                             onShareImage = {
-                                shareThoughtAsImage(
-                                    context = context,
-                                    thoughtText = t.text,
-                                    authorName = t.displayAuthorName(),
-                                    cityId = t.city.ifBlank { activeCity },
-                                    feelCount = t.feelCount,
-                                    imageUrl = t.imageUrls.firstOrNull(),
-                                )
-                                thoughtViewModel.incrementShareCount(t.id)
+                                scope.launch {
+                                    shareThoughtAsImage(
+                                        context = context,
+                                        thoughtText = t.text,
+                                        authorName = t.displayAuthorName(),
+                                        cityId = t.city.ifBlank { activeCity },
+                                        feelCount = t.feelCount,
+                                        imageUrl = t.imageUrls.firstOrNull(),
+                                    )
+                                    thoughtViewModel.incrementShareCount(t.id)
+                                }
                             },
                             onWhatsApp = {
                                 shareThoughtToWhatsApp(context, t.text, t.id, t.city.ifBlank { activeCity })
@@ -157,6 +169,17 @@ fun PostDetailScreen(
                                 { thoughtViewModel.blockAuthor(currentUid, t.authorId) }
                             } else null,
                         )
+                    }
+
+                    if (onMessageAuthor != null && isLoggedIn && currentUid != null && t.authorId != currentUid) {
+                        item {
+                            TextButton(
+                                onClick = { onMessageAuthor(t.authorId) },
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                            ) {
+                                Text("Message author")
+                            }
+                        }
                     }
 
                     item {
@@ -193,20 +216,33 @@ fun PostDetailScreen(
                                         text = comment.userName,
                                         style = MaterialTheme.typography.labelLarge,
                                         fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onBackground,
                                     )
-                                    if (isLoggedIn && currentUid != null && comment.userId != currentUid) {
-                                        TextButton(
-                                            onClick = {
-                                                reportComment = comment.id to comment.userId
-                                            },
-                                        ) {
-                                            Text("Report", color = MaterialTheme.colorScheme.error)
+                                    if (isLoggedIn && currentUid != null) {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            if (comment.userId == currentUid) {
+                                                TextButton(onClick = { editingCommentId = comment.id }) {
+                                                    Text("Edit")
+                                                }
+                                                TextButton(onClick = { pendingDeleteCommentId = comment.id }) {
+                                                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                                                }
+                                            } else {
+                                                TextButton(
+                                                    onClick = {
+                                                        reportComment = comment.id to comment.userId
+                                                    },
+                                                ) {
+                                                    Text("Report", color = MaterialTheme.colorScheme.error)
+                                                }
+                                            }
                                         }
                                     }
                                 }
                                 Text(
                                     text = comment.text,
                                     style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onBackground,
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                                 HorizontalDivider(
@@ -224,8 +260,20 @@ fun PostDetailScreen(
                                     value = draft,
                                     onValueChange = { draft = it },
                                     modifier = Modifier.fillMaxWidth(),
-                                    placeholder = { Text("Write a comment…") },
+                                    placeholder = {
+                                        Text(
+                                            "Write a comment…",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
                                     minLines = 2,
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                        focusedBorderColor = MaterialTheme.colorScheme.outline,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                                        cursorColor = MaterialTheme.colorScheme.primary,
+                                    ),
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Button(
@@ -256,7 +304,7 @@ fun PostDetailScreen(
                     }
                 }
             }
-            awaitingLoad -> {
+            ThoughtLoadState.Loading -> {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -266,7 +314,7 @@ fun PostDetailScreen(
                     CircularProgressIndicator()
                 }
             }
-            else -> {
+            ThoughtLoadState.NotFound -> {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -318,6 +366,51 @@ fun PostDetailScreen(
             onConfirm = { reason ->
                 thoughtViewModel.reportComment(thoughtId, commentId, currentUid, reason)
                 reportComment = null
+            },
+        )
+    }
+
+    val editCommentId = editingCommentId
+    val editComment = editCommentId?.let { id -> comments.find { it.id == id } }
+    if (editComment != null && currentUid != null && editComment.userId == currentUid) {
+        EditDialog(
+            initialText = editComment.text,
+            title = "Edit comment",
+            subtitle = "Only you can update your comment",
+            maxLength = ThoughtViewModel.MAX_COMMENT_LENGTH,
+            onDismiss = { editingCommentId = null },
+            onSave = { new ->
+                thoughtViewModel.updateComment(thoughtId, editComment.id, new)
+                editingCommentId = null
+            },
+        )
+    }
+
+    val deleteCommentId = pendingDeleteCommentId
+    val deleteComment = deleteCommentId?.let { id -> comments.find { it.id == id } }
+    if (
+        deleteComment != null &&
+        currentUid != null &&
+        deleteComment.userId == currentUid
+    ) {
+        AlertDialog(
+            onDismissRequest = { pendingDeleteCommentId = null },
+            title = { Text("Delete comment?") },
+            text = { Text("This can't be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        thoughtViewModel.deleteComment(thoughtId, deleteComment.id)
+                        pendingDeleteCommentId = null
+                    },
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteCommentId = null }) {
+                    Text("Cancel")
+                }
             },
         )
     }

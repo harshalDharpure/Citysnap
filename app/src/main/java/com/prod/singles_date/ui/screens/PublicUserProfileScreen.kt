@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -19,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,6 +46,8 @@ fun PublicUserProfileScreen(
     authorUid: String,
     currentUid: String?,
     thoughtViewModel: ThoughtViewModel,
+    showMessageButton: Boolean = false,
+    onMessage: () -> Unit = {},
     onBack: () -> Unit,
     onOpenPost: (String) -> Unit,
     onRequireLogin: () -> Unit,
@@ -53,8 +57,12 @@ fun PublicUserProfileScreen(
     var profile by remember { mutableStateOf<User?>(null) }
     var loading by remember { mutableStateOf(true) }
 
-    LaunchedEffect(authorUid) {
+    DisposableEffect(authorUid) {
         thoughtViewModel.setPublicProfileUid(authorUid)
+        onDispose { thoughtViewModel.clearPublicProfileUid() }
+    }
+
+    LaunchedEffect(authorUid) {
         loading = true
         profile = thoughtViewModel.fetchUserProfile(authorUid)
         loading = false
@@ -109,6 +117,16 @@ fun PublicUserProfileScreen(
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary,
                         )
+                    }
+                    if (showMessageButton) {
+                        Button(
+                            onClick = {
+                                if (currentUid != null) onMessage() else onRequireLogin()
+                            },
+                            modifier = Modifier.padding(top = 8.dp),
+                        ) {
+                            Text("Message")
+                        }
                     }
                 }
             }

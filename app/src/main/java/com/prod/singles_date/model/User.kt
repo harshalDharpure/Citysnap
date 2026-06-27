@@ -25,6 +25,7 @@ data class User(
     val notifyFeels: Boolean = true,
     val notifyComments: Boolean = true,
     val notifyPrompts: Boolean = true,
+    val notifyMessages: Boolean = true,
     val photoUrl: String = "",
     val savedThoughtIds: List<String> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),

@@ -21,7 +21,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.URL
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
 fun shareThoughtAsText(context: Context, thoughtText: String) {
@@ -32,7 +31,7 @@ fun shareThoughtAsText(context: Context, thoughtText: String) {
     context.startActivity(Intent.createChooser(send, null))
 }
 
-fun shareThoughtAsImage(
+suspend fun shareThoughtAsImage(
     context: Context,
     thoughtText: String,
     authorName: String,
@@ -251,12 +250,10 @@ private fun saveCardToCache(context: Context, bitmap: Bitmap): Uri {
     return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
 }
 
-private fun loadBitmapFromUrl(url: String): Bitmap? = runBlocking {
-    withContext(Dispatchers.IO) {
-        runCatching {
-            URL(url).openStream().use { stream ->
-                BitmapFactory.decodeStream(stream)
-            }
-        }.getOrNull()
-    }
+private suspend fun loadBitmapFromUrl(url: String): Bitmap? = withContext(Dispatchers.IO) {
+    runCatching {
+        URL(url).openStream().use { stream ->
+            BitmapFactory.decodeStream(stream)
+        }
+    }.getOrNull()
 }

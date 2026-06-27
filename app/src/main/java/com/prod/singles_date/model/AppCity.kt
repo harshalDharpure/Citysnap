@@ -26,6 +26,5 @@ object AppCity {
 
     fun isValid(cityId: String): Boolean = cityId in ALL
 
-    /** Only Bangalore is live at rollout; other cities unlock via Remote Config / ops. */
-    fun isExpansionUnlocked(cityId: String): Boolean = cityId == BANGALORE
+    fun isExpansionUnlocked(cityId: String): Boolean = cityId in ALL
 }

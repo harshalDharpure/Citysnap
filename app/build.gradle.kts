@@ -5,12 +5,20 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.google.services)
     alias(libs.plugins.firebase.crashlytics)
+    alias(libs.plugins.hilt.android)
+    alias(libs.plugins.ksp)
 }
 
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
+}
+
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.inputStream().use { localProperties.load(it) }
 }
 
 fun signingSecret(name: String): String? =
@@ -28,8 +36,19 @@ android {
         applicationId = "com.prod.singles_date"
         minSdk = 24
         targetSdk = 36
-        versionCode = 16
-        versionName = "6.0.0"
+        versionCode = 26
+        versionName = "6.0.5"
+
+        // Fallback if resource shrinking ever strips default_web_client_id from google-services.json.
+        buildConfigField(
+            "String",
+            "GOOGLE_WEB_CLIENT_ID",
+            "\"32449532472-lmg727mpcn2mrr78p2qlrbpj1on754t5.apps.googleusercontent.com\"",
+        )
+
+        val s3ApiBaseUrl = localProperties.getProperty("S3_API_BASE_URL")?.trim()?.takeIf { it.isNotBlank() }
+            ?: "https://q7dxdauc8f.execute-api.us-east-1.amazonaws.com"
+        buildConfigField("String", "S3_API_BASE_URL", "\"$s3ApiBaseUrl\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -75,6 +94,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -99,17 +119,23 @@ dependencies {
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.messaging)
-    implementation(libs.firebase.storage)
     implementation(libs.firebase.analytics)
     implementation(libs.firebase.crashlytics)
     implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.coil.compose)
     implementation(libs.androidx.compose.foundation)
+    implementation(libs.okhttp)
 
     // Google sign-in via Credential Manager.
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services.auth)
     implementation(libs.googleid)
+    implementation(libs.play.services.auth)
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
+    implementation(libs.hilt.navigation.compose)
+    implementation(libs.firebase.appcheck.playintegrity)
+    debugImplementation(libs.firebase.appcheck.debug)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

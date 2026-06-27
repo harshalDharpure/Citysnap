@@ -36,6 +36,8 @@ class HoghtMessagingService : FirebaseMessagingService() {
             type = data["type"].orEmpty(),
             thoughtId = data["thoughtId"].orEmpty(),
             promptText = data["promptText"].orEmpty(),
+            conversationId = data["conversationId"].orEmpty(),
+            senderId = data["senderId"].orEmpty(),
         )
     }
 
@@ -53,6 +55,8 @@ class HoghtMessagingService : FirebaseMessagingService() {
         type: String,
         thoughtId: String,
         promptText: String,
+        conversationId: String,
+        senderId: String,
     ) {
         ensureChannel(this)
 
@@ -60,6 +64,10 @@ class HoghtMessagingService : FirebaseMessagingService() {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra(NotificationIntentParser.EXTRA_TYPE, type)
             putExtra(NotificationIntentParser.EXTRA_PROMPT, promptText)
+            if (conversationId.isNotBlank() && senderId.isNotBlank()) {
+                putExtra(NotificationIntentParser.EXTRA_CONVERSATION_ID, conversationId)
+                putExtra(NotificationIntentParser.EXTRA_SENDER_ID, senderId)
+            }
             if (thoughtId.isNotBlank()) {
                 putExtra(NotificationIntentParser.EXTRA_THOUGHT_ID, thoughtId)
                 data = Uri.parse(AppLinks.thoughtUrl(thoughtId))
@@ -67,7 +75,7 @@ class HoghtMessagingService : FirebaseMessagingService() {
         }
         val pendingIntent = PendingIntent.getActivity(
             this,
-            (thoughtId + promptText).hashCode(),
+            (thoughtId + promptText + conversationId).hashCode(),
             intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
@@ -96,7 +104,7 @@ class HoghtMessagingService : FirebaseMessagingService() {
                     context.getString(R.string.notification_channel),
                     NotificationManager.IMPORTANCE_HIGH,
                 ).apply {
-                    description = "Reactions, replies, trending thoughts, daily prompts, and locality topics."
+                    description = "Reactions, replies, messages, trending thoughts, daily prompts, and locality topics."
                 }
                 context.getSystemService(NotificationManager::class.java)
                     ?.createNotificationChannel(channel)

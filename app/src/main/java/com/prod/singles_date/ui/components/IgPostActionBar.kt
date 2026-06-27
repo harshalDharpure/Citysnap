@@ -29,9 +29,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.prod.singles_date.ui.theme.FeelActive
+import com.prod.singles_date.ui.util.formatIgCountCompact
 
-private val IgIconSize = 22.dp
-private val IgActionSpacing = 10.dp
+private val IgIconSize = 24.dp
+private val IgActionSpacing = 18.dp
 
 @Composable
 fun IgPostActionBar(
@@ -76,14 +77,13 @@ fun IgPostActionBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 2.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(IgActionSpacing),
     ) {
         if (showFeelButton) {
             IgActionGroup(
                 count = feelCount,
-                contentDescription = "Feel this",
                 onClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                     pulseKey++
@@ -92,7 +92,7 @@ fun IgPostActionBar(
             ) {
                 Icon(
                     imageVector = if (hasFeeled) IgIcons.HeartFilled else IgIcons.Heart,
-                    contentDescription = null,
+                    contentDescription = "Feel this",
                     tint = if (hasFeeled) FeelActive else tint,
                     modifier = Modifier
                         .size(IgIconSize)
@@ -104,12 +104,11 @@ fun IgPostActionBar(
         if (showComments) {
             IgActionGroup(
                 count = commentCount,
-                contentDescription = "Comments",
                 onClick = onComment,
             ) {
                 Icon(
                     imageVector = IgIcons.Comment,
-                    contentDescription = null,
+                    contentDescription = "Comments",
                     tint = tint,
                     modifier = Modifier.size(IgIconSize),
                 )
@@ -118,13 +117,12 @@ fun IgPostActionBar(
 
         IgActionGroup(
             count = 0,
-            contentDescription = "Share",
             onClick = onShare,
             showCount = false,
         ) {
             Icon(
                 imageVector = IgIcons.Send,
-                contentDescription = null,
+                contentDescription = "Share",
                 tint = tint,
                 modifier = Modifier.size(IgIconSize),
             )
@@ -157,7 +155,6 @@ fun IgPostActionBar(
 @Composable
 private fun IgActionGroup(
     count: Int,
-    contentDescription: String,
     onClick: () -> Unit,
     showCount: Boolean = true,
     icon: @Composable () -> Unit,
@@ -169,17 +166,18 @@ private fun IgActionGroup(
                 interactionSource = remember { MutableInteractionSource() },
                 onClick = onClick,
             )
-            .padding(vertical = 4.dp),
+            .padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         icon()
-        if (showCount && count > 0) {
+        if (showCount) {
             Text(
-                text = count.toString(),
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontSize = 13.sp,
+                text = formatIgCountCompact(count),
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.1.sp,
                 ),
                 color = MaterialTheme.colorScheme.onBackground,
             )

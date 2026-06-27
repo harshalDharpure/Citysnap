@@ -32,9 +32,10 @@ class PostImagePickerState internal constructor(
 @Composable
 fun rememberPostImagePickerState(
     maxImages: Int = MediaRepository.MAX_IMAGES_PER_POST,
+    initialImages: List<Uri> = emptyList(),
 ): PostImagePickerState {
     val context = LocalContext.current
-    var selectedImages by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var selectedImages by remember { mutableStateOf(initialImages.distinct().take(maxImages)) }
     var showSourceSheet by remember { mutableStateOf(false) }
     var pickerMessage by remember { mutableStateOf<String?>(null) }
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }

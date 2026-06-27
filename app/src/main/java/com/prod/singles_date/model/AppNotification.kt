@@ -9,6 +9,8 @@ data class AppNotification(
     val title: String = "",
     val body: String = "",
     val thoughtId: String = "",
+    val conversationId: String = "",
+    val senderId: String = "",
     val read: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
 )

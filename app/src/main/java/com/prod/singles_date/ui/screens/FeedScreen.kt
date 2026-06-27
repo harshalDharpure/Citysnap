@@ -1,5 +1,6 @@
 package com.prod.singles_date.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,8 +21,6 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -53,11 +52,9 @@ import com.prod.singles_date.model.AppCity
 import com.prod.singles_date.model.AppLocality
 import com.prod.singles_date.model.User
 import com.prod.singles_date.ui.components.CityMoodCard
-import com.prod.singles_date.ui.components.EditDialog
 import com.prod.singles_date.ui.components.FeedFilterBar
 import com.prod.singles_date.ui.components.MainBottomBar
 import com.prod.singles_date.ui.components.MainTab
-import com.prod.singles_date.ui.components.PostDialog
 import com.prod.singles_date.ui.components.ThoughtCard
 import com.prod.singles_date.ui.util.copyThoughtToClipboard
 import com.prod.singles_date.ui.util.shareCityMoodCard
@@ -66,7 +63,6 @@ import com.prod.singles_date.ui.util.shareThoughtToWhatsApp
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import com.prod.singles_date.ui.components.ReportReasonDialog
 import androidx.compose.material.icons.filled.Notifications
 import com.prod.singles_date.util.FeedSortMode
 import com.prod.singles_date.util.DailyPrompts
@@ -86,6 +82,8 @@ fun FeedScreen(
     onOpenPost: (String) -> Unit,
     onOpenUserProfile: (String) -> Unit = {},
     onOpenNotifications: () -> Unit = {},
+    onOpenMessages: () -> Unit = {},
+    messagesUnreadCount: Int = 0,
 ) {
     val thoughts by thoughtViewModel.visibleThoughts.collectAsStateWithLifecycle()
     val feeledIds by thoughtViewModel.feeledThoughtIds.collectAsStateWithLifecycle()
@@ -93,11 +91,6 @@ fun FeedScreen(
     val profile by authViewModel.currentUser.collectAsStateWithLifecycle()
     val fu = firebaseUser
     val isLoggedIn = fu != null
-
-    LaunchedEffect(fu?.uid) {
-        thoughtViewModel.setCurrentUid(fu?.uid)
-        fu?.uid?.let { authViewModel.registerPushToken(it) }
-    }
 
     val user: User? = if (fu != null) {
         profile ?: run {
@@ -157,6 +150,7 @@ fun FeedScreen(
     val scope = rememberCoroutineScope()
     var showSearch by remember { mutableStateOf(false) }
     var showFeedTips by remember { mutableStateOf(!prefs.hasSeenFeedTips()) }
+    var skipPostDraftSave by remember { mutableStateOf(false) }
     val requestOpenComposer by thoughtViewModel.requestOpenComposer.collectAsStateWithLifecycle()
 
     LaunchedEffect(requestOpenComposer) {
@@ -186,12 +180,14 @@ fun FeedScreen(
     LaunchedEffect(isPosting, postError) {
         if (!awaitingPostResult || isPosting) return@LaunchedEffect
         if (postError == null) {
+            prefs.clearPostDraft()
+            skipPostDraftSave = true
             thoughtViewModel.setFeedLocalityFilter("")
             thoughtViewModel.setSearchQuery("")
             prefs.setFeedLocalityFilter("")
             showPost = false
             postPrompt = null
-            runCatching { listState.animateScrollToItem(0) }
+            skipPostDraftSave = false
         }
         awaitingPostResult = false
     }
@@ -201,6 +197,25 @@ fun FeedScreen(
     }
     var showDailyPrompt by remember(activeCity, dayOfYear) {
         mutableStateOf(dailyPrompt != null && prefs.getLastPromptDay() != dayOfYear)
+    }
+
+    BackHandler(
+        enabled = showPost || editThoughtId != null || pendingDeleteId != null ||
+            reportThoughtId != null || showDailyPrompt || showFeedTips || showSearch,
+    ) {
+        when {
+            showPost && !isPosting -> {
+                showPost = false
+                postPrompt = null
+                thoughtViewModel.clearPostError()
+            }
+            editThoughtId != null -> editThoughtId = null
+            pendingDeleteId != null -> pendingDeleteId = null
+            reportThoughtId != null -> reportThoughtId = null
+            showDailyPrompt -> showDailyPrompt = false
+            showFeedTips -> showFeedTips = false
+            showSearch -> showSearch = false
+        }
     }
 
     val emptyMessage = when {
@@ -277,9 +292,11 @@ fun FeedScreen(
                 selectedTab = MainTab.Home,
                 profilePhotoUrl = user?.photoUrl.orEmpty(),
                 profileName = user?.name.orEmpty(),
+                messagesUnreadCount = messagesUnreadCount,
                 onTabSelected = { tab ->
                     when (tab) {
                         MainTab.Home -> scope.launch { listState.animateScrollToItem(0) }
+                        MainTab.Messages -> onOpenMessages()
                         MainTab.Snap -> when {
                             !isLoggedIn -> onRequireLogin()
                             activeCity.isBlank() -> onChangeCity()
@@ -444,15 +461,17 @@ fun FeedScreen(
                                 thoughtViewModel.incrementShareCount(thought.id)
                             },
                             onShareImage = {
-                                shareThoughtAsImage(
-                                    context = context,
-                                    thoughtText = thought.text,
-                                    authorName = thought.displayAuthorName(),
-                                    cityId = thought.city.ifBlank { activeCity },
-                                    feelCount = thought.feelCount,
-                                    imageUrl = thought.imageUrls.firstOrNull(),
-                                )
-                                thoughtViewModel.incrementShareCount(thought.id)
+                                scope.launch {
+                                    shareThoughtAsImage(
+                                        context = context,
+                                        thoughtText = thought.text,
+                                        authorName = thought.displayAuthorName(),
+                                        cityId = thought.city.ifBlank { activeCity },
+                                        feelCount = thought.feelCount,
+                                        imageUrl = thought.imageUrls.firstOrNull(),
+                                    )
+                                    thoughtViewModel.incrementShareCount(thought.id)
+                                }
                             },
                             onWhatsApp = {
                                 shareThoughtToWhatsApp(context, thought.text, thought.id, thought.city.ifBlank { activeCity })
@@ -501,21 +520,29 @@ fun FeedScreen(
             }
         }
 
-        if (showPost && isLoggedIn && fu != null && user != null && activeCity.isNotBlank()) {
-            PostDialog(
-                cityLabel = AppCity.displayName(activeCity),
-                localityLabel = activeLocality.takeIf { it.isNotBlank() }
-                    ?.let { AppLocality.displayName(it) },
-                onDismiss = {
+        if (isLoggedIn && fu != null && user != null) {
+            FeedOverlays(
+                showPost = showPost && activeCity.isNotBlank(),
+                isLoggedIn = isLoggedIn,
+                firebaseUid = fu.uid,
+                user = user,
+                activeCity = activeCity,
+                activeLocality = activeLocality,
+                postPrompt = postPrompt,
+                isPosting = isPosting,
+                postError = postError,
+                skipPostDraftSave = skipPostDraftSave,
+                editThoughtId = editThoughtId,
+                thoughts = thoughts,
+                pendingDeleteId = pendingDeleteId,
+                reportThoughtId = reportThoughtId,
+                onDismissPost = {
                     if (!isPosting) {
                         showPost = false
                         postPrompt = null
                         thoughtViewModel.clearPostError()
                     }
                 },
-                promptText = postPrompt,
-                isPosting = isPosting,
-                postError = postError,
                 onPostThought = { text, category, postType, imageUris ->
                     awaitingPostResult = true
                     thoughtViewModel.clearPostError()
@@ -532,67 +559,27 @@ fun FeedScreen(
                         imageUris = imageUris,
                     )
                 },
-            )
-        }
-
-        val etId = editThoughtId
-        val et = remember(etId, thoughts) { etId?.let { id -> thoughts.find { it.id == id } } }
-        if (et != null && isLoggedIn && fu != null && et.authorId == fu.uid) {
-            EditDialog(
-                initialText = et.text,
-                allowEmptySave = et.imageUrls.isNotEmpty(),
-                onDismiss = { editThoughtId = null },
-                onSave = { new ->
-                    thoughtViewModel.updateThought(
-                        thoughtId = et.id,
-                        rawText = new,
-                        allowEmpty = et.imageUrls.isNotEmpty(),
-                    )
+                onDismissEdit = { editThoughtId = null },
+                onSaveEdit = { new ->
+                    val etId = editThoughtId
+                    val et = etId?.let { id -> thoughts.find { it.id == id } }
+                    if (et != null) {
+                        thoughtViewModel.updateThought(
+                            thoughtId = et.id,
+                            rawText = new,
+                            allowEmpty = et.imageUrls.isNotEmpty(),
+                        )
+                    }
                     editThoughtId = null
                 },
-            )
-        }
-
-        val deleteId = pendingDeleteId
-        val deleteTarget = remember(deleteId, thoughts) {
-            deleteId?.let { id -> thoughts.find { it.id == id } }
-        }
-        if (
-            !deleteId.isNullOrBlank() &&
-            deleteTarget != null &&
-            isLoggedIn &&
-            fu != null &&
-            deleteTarget.authorId == fu.uid
-        ) {
-            AlertDialog(
-                onDismissRequest = { pendingDeleteId = null },
-                title = { Text("Delete thought?") },
-                text = { Text("This can't be undone.") },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            thoughtViewModel.deleteThought(deleteId, fu.uid)
-                            pendingDeleteId = null
-                        },
-                    ) {
-                        Text("Delete")
-                    }
+                onDismissDelete = { pendingDeleteId = null },
+                onConfirmDelete = { id ->
+                    thoughtViewModel.deleteThought(id, fu.uid)
+                    pendingDeleteId = null
                 },
-                dismissButton = {
-                    TextButton(onClick = { pendingDeleteId = null }) {
-                        Text("Cancel")
-                    }
-                },
-            )
-        }
-
-        val reportId = reportThoughtId
-        if (reportId != null && fu != null) {
-            ReportReasonDialog(
-                title = "Report post",
-                onDismiss = { reportThoughtId = null },
-                onConfirm = { reason ->
-                    thoughtViewModel.reportThought(reportId, fu.uid, reason)
+                onDismissReport = { reportThoughtId = null },
+                onConfirmReport = { id, reason ->
+                    thoughtViewModel.reportThought(id, fu.uid, reason)
                     reportThoughtId = null
                 },
             )

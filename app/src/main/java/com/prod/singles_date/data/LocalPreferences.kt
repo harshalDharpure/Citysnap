@@ -3,6 +3,8 @@ package com.prod.singles_date.data
 import android.content.Context
 import com.prod.singles_date.model.AppCity
 import com.prod.singles_date.model.AppLocality
+import com.prod.singles_date.model.PostDraft
+import com.prod.singles_date.model.PostType
 import com.prod.singles_date.model.ThemeMode
 
 /**
@@ -110,8 +112,43 @@ class LocalPreferences(context: Context) {
         prefs.edit().putBoolean(KEY_SEEN_FEED_TIPS, seen).apply()
     }
 
+    fun getPostDraft(): PostDraft {
+        val images = prefs.getString(KEY_POST_DRAFT_IMAGES, "").orEmpty()
+        return PostDraft(
+            text = prefs.getString(KEY_POST_DRAFT_TEXT, "").orEmpty(),
+            category = prefs.getString(KEY_POST_DRAFT_CATEGORY, "").orEmpty(),
+            postType = prefs.getString(KEY_POST_DRAFT_TYPE, PostType.SNAP).orEmpty(),
+            imageUris = if (images.isBlank()) emptyList() else images.split(IMAGE_URI_DELIM),
+        )
+    }
+
+    fun savePostDraft(draft: PostDraft) {
+        if (!draft.hasContent()) {
+            clearPostDraft()
+            return
+        }
+        prefs.edit()
+            .putString(KEY_POST_DRAFT_TEXT, draft.text)
+            .putString(KEY_POST_DRAFT_CATEGORY, draft.category)
+            .putString(KEY_POST_DRAFT_TYPE, draft.postType)
+            .putString(KEY_POST_DRAFT_IMAGES, draft.imageUris.joinToString(IMAGE_URI_DELIM))
+            .apply()
+    }
+
+    fun clearPostDraft() {
+        prefs.edit()
+            .remove(KEY_POST_DRAFT_TEXT)
+            .remove(KEY_POST_DRAFT_CATEGORY)
+            .remove(KEY_POST_DRAFT_TYPE)
+            .remove(KEY_POST_DRAFT_IMAGES)
+            .apply()
+    }
+
+    fun hasPostDraft(): Boolean = getPostDraft().hasContent()
+
     companion object {
         private const val PREFS_NAME = "hoght_prefs"
+        private const val IMAGE_URI_DELIM = "\u0001"
         private const val KEY_GUEST_CITY = "guest_city"
         private const val KEY_GUEST_LOCALITY = "guest_locality"
         private const val KEY_GUEST_IDENTITY = "guest_identity"
@@ -126,6 +163,10 @@ class LocalPreferences(context: Context) {
         private const val KEY_NOTIFY_PROMPTS = "notify_prompts"
         private const val KEY_FEED_SORT = "feed_sort_mode"
         private const val KEY_SEEN_FEED_TIPS = "seen_feed_tips"
+        private const val KEY_POST_DRAFT_TEXT = "post_draft_text"
+        private const val KEY_POST_DRAFT_CATEGORY = "post_draft_category"
+        private const val KEY_POST_DRAFT_TYPE = "post_draft_type"
+        private const val KEY_POST_DRAFT_IMAGES = "post_draft_images"
 
         fun referralCodeForUid(uid: String): String = uid.take(8).lowercase()
 

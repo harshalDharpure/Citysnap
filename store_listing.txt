@@ -1,5 +1,5 @@
-Hoght — Play Store Listing
-============================
+Citysnap — Play Store Listing
+================================
 
 Short description:
 Discover what people in your city are really thinking.
@@ -10,7 +10,7 @@ The Voice of Your City.
 Full description:
 See what your city is really thinking.
 
-Hoght is where Bangalore (and soon more cities) shares honest thoughts about work, rent, traffic, relationships, college, startups, and local life — anonymously.
+Citysnap is where Bangalore, Pune, Hyderabad, Chennai, Mumbai, and Delhi share honest thoughts about work, rent, traffic, relationships, college, startups, and local life — with your real name on posts.
 
 • City thoughts from people near you
 • Work life, relationships, college, startup life, local issues
@@ -20,3 +20,12 @@ Hoght is where Bangalore (and soon more cities) shares honest thoughts about wor
 
 Categories covered:
 City thoughts · Work life · Relationships · College life · Startup life · Local issues
+
+Privacy policy URL (GitHub Pages):
+https://harshalDharpure.github.io/Citysnap/privacy.html
+
+Child safety URL (GitHub Pages):
+https://harshalDharpure.github.io/Citysnap/child-safety.html
+
+Contact:
+citysnap.play.review@gmail.com

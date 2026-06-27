@@ -6,6 +6,8 @@ import com.prod.singles_date.model.Thought
 import com.prod.singles_date.model.User
 import com.prod.singles_date.repository.ProfileRepository
 import com.prod.singles_date.repository.ThoughtRepository
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -17,9 +19,10 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class ProfileViewModel(
-    private val profileRepository: ProfileRepository = ProfileRepository(),
-    private val thoughtRepository: ThoughtRepository = ThoughtRepository(),
+@HiltViewModel
+class ProfileViewModel @Inject constructor(
+    private val profileRepository: ProfileRepository,
+    private val thoughtRepository: ThoughtRepository,
 ) : ViewModel() {
 
     private val _uid = MutableStateFlow<String?>(null)

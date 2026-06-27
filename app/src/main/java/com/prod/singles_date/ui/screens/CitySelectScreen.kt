@@ -41,7 +41,7 @@ private enum class OnboardingStep { City, Locality }
 
 @Composable
 fun CitySelectScreen(
-    isBusy: Boolean,
+    isSaving: Boolean,
     onContinue: (cityId: String, localityId: String) -> Unit,
 ) {
     var step by remember { mutableIntStateOf(OnboardingStep.City.ordinal) }
@@ -141,6 +141,9 @@ fun CitySelectScreen(
                     when (OnboardingStep.entries[step]) {
                         OnboardingStep.City -> {
                             if (requiresLocality) {
+                                if (selectedLocality.isBlank()) {
+                                    selectedLocality = localities.first()
+                                }
                                 step = OnboardingStep.Locality.ordinal
                             } else {
                                 onContinue(selectedCity, selectedLocality)
@@ -152,8 +155,8 @@ fun CitySelectScreen(
                     }
                 },
                 enabled = when (OnboardingStep.entries[step]) {
-                    OnboardingStep.City -> AppCity.isValid(selectedCity) && !isBusy
-                    OnboardingStep.Locality -> selectedLocality.isNotBlank() && !isBusy
+                    OnboardingStep.City -> AppCity.isValid(selectedCity) && !isSaving
+                    OnboardingStep.Locality -> !isSaving
                 },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(
@@ -162,12 +165,18 @@ fun CitySelectScreen(
                 ),
                 shape = MaterialTheme.shapes.large,
             ) {
-                Text(if (isBusy) "Saving…" else buttonLabel)
+                Text(if (isSaving) "Saving…" else buttonLabel)
             }
 
             if (step > OnboardingStep.City.ordinal) {
                 TextButton(onClick = { step -= 1 }) {
                     Text("Back", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                TextButton(
+                    onClick = { onContinue(selectedCity, "") },
+                    enabled = !isSaving,
+                ) {
+                    Text("Skip area for now", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

@@ -3,7 +3,7 @@
 /**
  * hoght Cloud Functions — notifications, prompts, trending, badges, city mood.
  *
- * Deploy: firebase deploy --only functions,firestore:rules,firestore:indexes,storage
+ * Deploy: firebase deploy --only functions,firestore:rules,firestore:indexes
  */
 
 const { onDocumentCreated, onDocumentDeleted, onDocumentWritten } = require("firebase-functions/v2/firestore");
@@ -63,6 +63,7 @@ async function notifyUser(uid, title, body, data = {}) {
     const feelsOn = userSnap.get("notifyFeels") !== false;
     const commentsOn = userSnap.get("notifyComments") !== false;
     const promptsOn = userSnap.get("notifyPrompts") !== false;
+    const messagesOn = userSnap.get("notifyMessages") !== false;
     const allowed = {
       feel: feelsOn,
       milestone: feelsOn,
@@ -70,6 +71,7 @@ async function notifyUser(uid, title, body, data = {}) {
       comment: commentsOn,
       daily_prompt: promptsOn,
       locality_topic: promptsOn,
+      message: messagesOn,
     }[type];
     if (allowed === false) return;
   }
@@ -85,6 +87,8 @@ async function notifyUser(uid, title, body, data = {}) {
         type: data.type || "",
         thoughtId: data.thoughtId || "",
         promptText: data.promptText || "",
+        conversationId: data.conversationId || "",
+        senderId: data.senderId || "",
       },
       android: { priority: "high" },
     });
@@ -95,6 +99,8 @@ async function notifyUser(uid, title, body, data = {}) {
         title,
         body,
         thoughtId: data.thoughtId || "",
+        conversationId: data.conversationId || "",
+        senderId: data.senderId || "",
         read: false,
         createdAt: Date.now(),
       });
@@ -511,6 +517,85 @@ async function deleteStoragePrefix(prefix) {
   }
 }
 
+function conversationIdFor(uidA, uidB) {
+  const sorted = [uidA, uidB].sort();
+  return `${sorted[0]}_${sorted[1]}`;
+}
+
+async function isBlockedPair(uidA, uidB) {
+  const [a, b] = await Promise.all([
+    db.doc(`users/${uidA}/blocked/${uidB}`).get(),
+    db.doc(`users/${uidB}/blocked/${uidA}`).get(),
+  ]);
+  return a.exists || b.exists;
+}
+
+async function checkMessageRateLimit(senderId) {
+  const hourBucket = Math.floor(Date.now() / 3600000);
+  const ref = db.doc(`users/${senderId}/rate_limits/message_hour_${hourBucket}`);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const count = snap.exists ? snap.get("count") || 0 : 0;
+    if (count >= 30) return false;
+    tx.set(ref, { count: count + 1, updatedAt: Date.now() }, { merge: true });
+    return true;
+  });
+}
+
+/** Sync inbox metadata and notify recipient when a DM is sent. */
+exports.onMessageCreated = onDocumentCreated(
+  "conversations/{conversationId}/messages/{messageId}",
+  async (event) => {
+    const { conversationId, messageId } = event.params;
+    const message = event.data?.data();
+    if (!message) return;
+
+    const senderId = message.senderId || "";
+    const text = (message.text || "").trim();
+    if (!senderId || !text) return;
+
+    const convoRef = db.doc(`conversations/${conversationId}`);
+    const convoSnap = await convoRef.get();
+    if (!convoSnap.exists) {
+      await event.data.ref.delete();
+      return;
+    }
+
+    const participantIds = convoSnap.get("participantIds") || [];
+    if (participantIds.length !== 2 || !participantIds.includes(senderId)) {
+      await event.data.ref.delete();
+      return;
+    }
+
+    const recipientId = participantIds.find((id) => id !== senderId);
+    if (!recipientId) return;
+
+    if (await isBlockedPair(participantIds[0], participantIds[1])) {
+      await event.data.ref.delete();
+      return;
+    }
+
+    const allowed = await checkMessageRateLimit(senderId);
+    if (!allowed) {
+      await event.data.ref.delete();
+      logger.warn(`Rate limit exceeded for sender ${senderId}`);
+      return;
+    }
+
+    const createdAt = message.createdAt || Date.now();
+    const preview = text.length > 120 ? `${text.slice(0, 117)}...` : text;
+
+    const senderProfile = await db.doc(`public_profiles/${senderId}`).get();
+    const senderName = senderProfile.get("name") || "Someone";
+
+    await notifyUser(recipientId, senderName, preview, {
+      type: "message",
+      conversationId,
+      senderId,
+    });
+  },
+);
+
 /** Safety net: purge orphaned data when a user document is deleted. */
 exports.onUserDeleted = onDocumentDeleted("users/{uid}", async (event) => {
   const uid = event.params.uid;
@@ -523,7 +608,16 @@ exports.onUserDeleted = onDocumentDeleted("users/{uid}", async (event) => {
 
   await deleteCollectionGroupByField("comments", "userId", uid);
   await deleteCollectionGroupByField("feels", "uid", uid);
-  await deleteSubcollection(db.collection(`users/${uid}/notifications`));
+
+  const convos = await db.collection("conversations").where("participantIds", "array-contains", uid).get();
+  for (const doc of convos.docs) {
+    await deleteSubcollection(doc.ref.collection("messages"));
+    await doc.ref.delete();
+  }
+
+  for (const sub of ["blocked", "hidden", "referrals", "saved", "notifications", "conversation_meta", "rate_limits"]) {
+    await deleteSubcollection(db.collection(`users/${uid}/${sub}`));
+  }
   await deleteStoragePrefix(`profiles/${uid}/`);
   await deleteStoragePrefix(`thoughts/${uid}/`);
 });

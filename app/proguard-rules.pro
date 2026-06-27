@@ -26,7 +26,12 @@
 -keepnames class com.prod.singles_date.model.** { *; }
 -keepclassmembers class com.prod.singles_date.model.** { *; }
 
-# Remove low-value logs from release builds. Keep warnings/errors for crash diagnosis.
+# Google Sign-In (Credential Manager + legacy play-services-auth fallback).
+-keep class com.google.android.gms.auth.** { *; }
+-keep class com.google.android.gms.common.** { *; }
+-keep class com.google.android.libraries.identity.googleid.** { *; }
+-keep class androidx.credentials.** { *; }
+
 -assumenosideeffects class android.util.Log {
     public static int v(...);
     public static int d(...);

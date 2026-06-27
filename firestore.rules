@@ -30,8 +30,28 @@ service cloud.firestore {
       return category == '' || category in ['work', 'life', 'relationship', 'college', 'traffic', 'rent', 'startup', 'food'];
     }
 
+    function validImageUrl(url) {
+      return url is string
+        && url.size() > 0
+        && url.size() <= 2048
+        && url.matches('https://.*')
+        && (
+          url.matches('https://[a-zA-Z0-9.-]+\\.s3\\.amazonaws\\.com/.*')
+          || url.matches('https://[a-zA-Z0-9.-]+\\.s3\\.[a-z0-9-]+\\.amazonaws\\.com/.*')
+          || url.matches('https://[a-zA-Z0-9.-]+\\.cloudfront\\.net/.*')
+          || url.matches('https://citysnap\\.app/.*')
+        );
+    }
+
     function validImageUrls(urls) {
-      return urls is list && urls.size() <= 4;
+      return urls is list
+        && urls.size() <= 4
+        && (urls.size() == 0 || (
+          validImageUrl(urls[0])
+          && (urls.size() < 2 || validImageUrl(urls[1]))
+          && (urls.size() < 3 || validImageUrl(urls[2]))
+          && (urls.size() < 4 || validImageUrl(urls[3]))
+        ));
     }
 
     function hasValidImages(data) {
@@ -78,11 +98,16 @@ service cloud.firestore {
         || (data.referralCode is string && data.referralCode.size() <= 64);
     }
 
+    function isBlocked(uidA, uidB) {
+      return exists(/databases/$(database)/documents/users/$(uidA)/blocked/$(uidB))
+        || exists(/databases/$(database)/documents/users/$(uidB)/blocked/$(uidA));
+    }
+
     function validUserCreateKeys(data) {
       return data.keys().hasOnly([
         'uid', 'name', 'email', 'city', 'locality', 'referralCode',
         'photoUrl', 'createdAt', 'notifyFeels', 'notifyComments',
-        'notifyPrompts'
+        'notifyPrompts', 'notifyMessages'
       ]);
     }
 
@@ -98,7 +123,8 @@ service cloud.firestore {
         && (!data.keys().hasAny(['createdAt']) || data.createdAt is int)
         && (!data.keys().hasAny(['notifyFeels']) || data.notifyFeels is bool)
         && (!data.keys().hasAny(['notifyComments']) || data.notifyComments is bool)
-        && (!data.keys().hasAny(['notifyPrompts']) || data.notifyPrompts is bool);
+        && (!data.keys().hasAny(['notifyPrompts']) || data.notifyPrompts is bool)
+        && (!data.keys().hasAny(['notifyMessages']) || data.notifyMessages is bool);
     }
 
     function keepsServerUserFields() {
@@ -127,6 +153,13 @@ service cloud.firestore {
             && request.resource.data.notifyFeels is bool
             && request.resource.data.notifyComments is bool
             && request.resource.data.notifyPrompts is bool)
+          || (changedKeys().hasOnly(['notifyMessages'])
+            && request.resource.data.notifyMessages is bool)
+          || (changedKeys().hasOnly(['notifyFeels', 'notifyComments', 'notifyPrompts', 'notifyMessages'])
+            && request.resource.data.notifyFeels is bool
+            && request.resource.data.notifyComments is bool
+            && request.resource.data.notifyPrompts is bool
+            && request.resource.data.notifyMessages is bool)
           || (changedKeys().hasOnly(['referralCode'])
             && resource.data.get('referralCode', '') == ''
             && validUserReferralCode(request.resource.data))
@@ -139,13 +172,13 @@ service cloud.firestore {
     }
 
     function validThoughtCreateKeys(data) {
-      return data.keys().hasOnly([
+      return data.keys().hasAll([
         'id', 'text', 'feelCount', 'commentCount', 'shareCount',
         'authorId', 'authorName', 'authorPhotoUrl', 'city', 'locality',
         'category', 'postType', 'trendingRank', 'isSponsored',
         'sponsorLabel', 'sponsorUrl', 'imageUrls', 'imageCount',
         'createdAt'
-      ]);
+      ]) && data.keys().size() <= 19;
     }
 
     match /users/{uid} {
@@ -169,12 +202,14 @@ service cloud.firestore {
       match /referrals/{referredUid} {
         allow read: if isUser(uid);
         allow create: if isSignedIn() && request.auth.uid == referredUid;
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if isUser(uid);
       }
 
       match /saved/{thoughtId} {
-        allow read, create, delete: if isUser(uid)
+        allow read, create: if isUser(uid)
           && get(/databases/$(database)/documents/users/$(uid)).data.get('isPremium', false) == true;
+        allow delete: if isUser(uid);
         allow update: if false;
       }
 
@@ -185,6 +220,50 @@ service cloud.firestore {
           && request.resource.data.read is bool;
         allow delete: if isUser(uid);
         allow create: if false;
+      }
+
+      match /conversation_meta/{conversationId} {
+        function validConversationMetaWrite() {
+          return request.resource.data.otherUserId is string
+            && request.resource.data.otherUserId.size() > 0
+            && request.resource.data.lastMessageText is string
+            && request.resource.data.lastMessageText.size() <= 120
+            && request.resource.data.lastMessageAt is int
+            && request.resource.data.unreadCount is number
+            && request.resource.data.unreadCount >= 0
+            && request.resource.data.hidden is bool;
+        }
+
+        function isConversationParticipantWriter() {
+          return isSignedIn()
+            && exists(/databases/$(database)/documents/conversations/$(conversationId))
+            && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds
+            && request.resource.data.otherUserId == request.auth.uid;
+        }
+
+        allow read: if isUser(uid);
+        allow create, update: if (isUser(uid) && validConversationMetaWrite())
+          || (isConversationParticipantWriter() && validConversationMetaWrite());
+        allow update: if isUser(uid)
+          && (
+            (changedKeys().hasOnly(['unreadCount'])
+              && request.resource.data.unreadCount == 0
+              && request.resource.data.unreadCount is number)
+            || (changedKeys().hasOnly(['hidden'])
+              && request.resource.data.hidden is bool)
+            || (changedKeys().hasOnly(['unreadCount', 'hidden'])
+              && request.resource.data.unreadCount == 0
+              && request.resource.data.hidden is bool)
+            || (
+              changedKeys().hasOnly(['otherUserId', 'lastMessageText', 'lastMessageAt', 'unreadCount', 'hidden'])
+              && validConversationMetaWrite()
+            )
+          );
+        allow delete: if isUser(uid);
+      }
+
+      match /rate_limits/{docId} {
+        allow read, write: if false;
       }
     }
 
@@ -222,7 +301,80 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /conversations/{conversationId} {
+      function conversationParticipants() {
+        return get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds;
+      }
+
+      allow read: if isSignedIn()
+        && request.auth.uid in resource.data.participantIds;
+
+      allow create: if isSignedIn()
+        && request.resource.data.participantIds is list
+        && request.resource.data.participantIds.size() == 2
+        && request.auth.uid in request.resource.data.participantIds
+        && request.resource.data.participantIds[0] is string
+        && request.resource.data.participantIds[1] is string
+        && request.resource.data.participantIds[0] < request.resource.data.participantIds[1]
+        && conversationId == request.resource.data.participantIds[0] + '_' + request.resource.data.participantIds[1]
+        && !isBlocked(
+          request.resource.data.participantIds[0],
+          request.resource.data.participantIds[1]
+        );
+
+      allow update: if isSignedIn()
+        && request.auth.uid in resource.data.participantIds
+        && changedKeys().hasOnly(['lastMessageText', 'lastMessageAt', 'lastSenderId'])
+        && request.resource.data.lastMessageText is string
+        && request.resource.data.lastMessageText.size() > 0
+        && request.resource.data.lastMessageText.size() <= 120
+        && request.resource.data.lastSenderId == request.auth.uid
+        && request.resource.data.lastMessageAt is int;
+
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn()
+          && request.auth.uid in conversationParticipants();
+
+        allow create: if isSignedIn()
+          && exists(/databases/$(database)/documents/conversations/$(conversationId))
+          && request.auth.uid in conversationParticipants()
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 1000
+          && request.resource.data.createdAt is int
+          && !isBlocked(conversationParticipants()[0], conversationParticipants()[1]);
+
+        allow update: if isSignedIn()
+          && request.auth.uid in conversationParticipants()
+          && changedKeys().hasOnly(['readBy'])
+          && request.resource.data.readBy[request.auth.uid] is int;
+
+        allow delete: if false;
+      }
+    }
+
     match /thoughts/{thoughtId} {
+      function feelCountDeltaValid() {
+        let prev = resource.data.get('feelCount', 0);
+        let next = request.resource.data.feelCount;
+        return changedKeys().hasOnly(['feelCount'])
+          && next is number
+          && next >= 0
+          && (next == prev + 1 || next == prev - 1);
+      }
+
+      function commentCountDeltaValid() {
+        let prev = resource.data.get('commentCount', 0);
+        let next = request.resource.data.commentCount;
+        return changedKeys().hasOnly(['commentCount'])
+          && next is number
+          && next >= 0
+          && (next == prev + 1 || next == prev - 1);
+      }
+
       allow read: if true;
 
       allow create: if isSignedIn()
@@ -256,6 +408,7 @@ service cloud.firestore {
         && request.resource.data.get('commentCount', 0) == 0
         && request.resource.data.get('shareCount', 0) == 0
         && request.resource.data.get('trendingRank', 0) == 0
+        && request.resource.data.createdAt is int
         && request.resource.data.get('isSponsored', false) == false
         && request.resource.data.get('sponsorLabel', '') == ''
         && validCity(request.resource.data.get('city', ''))
@@ -263,13 +416,19 @@ service cloud.firestore {
         && validCategory(request.resource.data.get('category', ''));
 
       allow update: if isSignedIn()
-        && resource.data.authorId == request.auth.uid
-        && changedKeys().hasOnly(['text'])
-        && request.resource.data.text is string
-        && request.resource.data.text.size() <= 250
         && (
-          request.resource.data.text.size() > 0
-          || resource.data.get('imageUrls', []).size() > 0
+          (
+            resource.data.authorId == request.auth.uid
+            && changedKeys().hasOnly(['text'])
+            && request.resource.data.text is string
+            && request.resource.data.text.size() <= 250
+            && (
+              request.resource.data.text.size() > 0
+              || resource.data.get('imageUrls', []).size() > 0
+            )
+          )
+          || feelCountDeltaValid()
+          || commentCountDeltaValid()
         );
 
       allow delete: if isSignedIn()
@@ -283,7 +442,12 @@ service cloud.firestore {
           && request.resource.data.text is string
           && request.resource.data.text.size() > 0
           && request.resource.data.text.size() <= 500;
-        allow update: if false;
+        allow update: if isSignedIn()
+          && resource.data.userId == request.auth.uid
+          && changedKeys().hasOnly(['text'])
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 500;
         allow delete: if isSignedIn()
           && (
             resource.data.userId == request.auth.uid

@@ -3,14 +3,18 @@ package com.prod.singles_date.repository
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
-import com.google.firebase.firestore.SetOptions
+import com.prod.singles_date.model.AppCity
+import com.prod.singles_date.model.AppLocality
 import com.prod.singles_date.model.AppNotification
 import com.prod.singles_date.model.CityMood
 import com.prod.singles_date.model.Comment
 import com.prod.singles_date.model.PostType
 import com.prod.singles_date.model.Thought
+import com.prod.singles_date.model.ThoughtLoadState
+import com.prod.singles_date.model.ThoughtCategory
 import com.prod.singles_date.model.User
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -123,14 +127,22 @@ class ThoughtRepository(
         postType: String = PostType.SNAP,
         context: Context,
         imageUris: List<Uri> = emptyList(),
-    ) {
+    ): String {
         val type = postType.ifBlank { PostType.SNAP }
         require(PostType.isValid(type)) { "Invalid post type" }
+        val safeCity = city.trim().lowercase()
+        require(AppCity.isValid(safeCity)) { "Invalid city" }
+        val safeLocality = locality.trim().lowercase().takeIf {
+            AppLocality.isValidForCity(safeCity, it)
+        }.orEmpty()
+        val safeCategory = category.trim().lowercase().takeIf {
+            ThoughtCategory.isValid(it)
+        }.orEmpty()
         val maxLen = PostType.maxLength(type)
         val trimmedText = text.trim().take(maxLen)
         val cappedUris = if (type == PostType.NOTE) emptyList() else imageUris.take(MediaRepository.MAX_IMAGES_PER_POST)
-        if ((trimmedText.isBlank() && cappedUris.isEmpty()) || city.isBlank()) return
-        if (type == PostType.NOTE && category.isBlank()) {
+        if ((trimmedText.isBlank() && cappedUris.isEmpty()) || safeCity.isBlank()) return ""
+        if (type == PostType.NOTE && safeCategory.isBlank()) {
             error("Pick a category for Local Notes")
         }
 
@@ -153,11 +165,11 @@ class ThoughtRepository(
             commentCount = 0,
             shareCount = 0,
             authorId = authorId,
-            authorName = authorName.trim(),
-            authorPhotoUrl = authorPhotoUrl.trim(),
-            city = city,
-            locality = locality,
-            category = category,
+            authorName = authorName.trim().ifBlank { "You" }.take(60),
+            authorPhotoUrl = authorPhotoUrl.trim().take(2048),
+            city = safeCity,
+            locality = safeLocality,
+            category = safeCategory,
             postType = type,
             isSponsored = false,
             sponsorLabel = "",
@@ -166,8 +178,11 @@ class ThoughtRepository(
             imageCount = imageUrls.size,
             createdAt = System.currentTimeMillis(),
         )
-        doc.set(thought).await()
-        updatePostStreak(authorId)
+        doc.set(thoughtToFirestoreMap(thought)).await()
+        runCatching { updatePostStreak(authorId) }.onFailure { e ->
+            Log.w(TAG, "updatePostStreak failed authorId=$authorId", e)
+        }
+        return doc.id
     }
 
     private suspend fun updatePostStreak(authorId: String) {
@@ -175,6 +190,7 @@ class ThoughtRepository(
         val userRef = db.collection("users").document(authorId)
         db.runTransaction { tx ->
             val snap = tx.get(userRef)
+            if (!snap.exists()) return@runTransaction
             val lastDate = snap.getString("lastPostDate").orEmpty()
             val currentStreak = snap.getLong("postStreak")?.toInt() ?: 0
             val newStreak = when {
@@ -182,10 +198,12 @@ class ThoughtRepository(
                 lastDate == yesterdayDateString() -> currentStreak + 1
                 else -> 1
             }
-            tx.set(
+            tx.update(
                 userRef,
-                mapOf("postStreak" to newStreak, "lastPostDate" to today),
-                SetOptions.merge(),
+                mapOf(
+                    "postStreak" to newStreak,
+                    "lastPostDate" to today,
+                ),
             )
         }.await()
     }
@@ -232,7 +250,7 @@ class ThoughtRepository(
     suspend fun toggleFeel(thoughtId: String, uid: String): Boolean {
         val thoughtRef = db.collection("thoughts").document(thoughtId)
         val feelRef = thoughtRef.collection("feels").document(uid)
-        return db.runTransaction { tx ->
+        val felt = db.runTransaction { tx ->
             val existing = tx.get(feelRef)
             if (existing.exists()) {
                 tx.delete(feelRef)
@@ -245,6 +263,30 @@ class ThoughtRepository(
                 true
             }
         }.await()
+        adjustFeelCount(thoughtId, if (felt) 1 else -1)
+        return felt
+    }
+
+    suspend fun adjustFeelCount(thoughtId: String, delta: Int) {
+        if (thoughtId.isBlank() || delta == 0) return
+        try {
+            db.collection("thoughts").document(thoughtId)
+                .update("feelCount", FieldValue.increment(delta.toLong()))
+                .await()
+        } catch (e: Exception) {
+            Log.w(TAG, "adjustFeelCount($thoughtId, $delta) failed", e)
+        }
+    }
+
+    suspend fun adjustCommentCount(thoughtId: String, delta: Int) {
+        if (thoughtId.isBlank() || delta == 0) return
+        try {
+            db.collection("thoughts").document(thoughtId)
+                .update("commentCount", FieldValue.increment(delta.toLong()))
+                .await()
+        } catch (e: Exception) {
+            Log.w(TAG, "adjustCommentCount($thoughtId, $delta) failed", e)
+        }
     }
 
     suspend fun incrementShareCount(thoughtId: String) {
@@ -288,7 +330,8 @@ class ThoughtRepository(
     }
 
     suspend fun addComment(thoughtId: String, userId: String, userName: String, text: String) {
-        val doc = db.collection("thoughts").document(thoughtId).collection("comments").document()
+        val thoughtRef = db.collection("thoughts").document(thoughtId)
+        val doc = thoughtRef.collection("comments").document()
         val comment = Comment(
             id = doc.id,
             userId = userId,
@@ -297,6 +340,22 @@ class ThoughtRepository(
             createdAt = System.currentTimeMillis(),
         )
         doc.set(comment).await()
+        adjustCommentCount(thoughtId, 1)
+    }
+
+    suspend fun updateComment(thoughtId: String, commentId: String, text: String) {
+        if (thoughtId.isBlank() || commentId.isBlank() || text.isBlank()) return
+        db.collection("thoughts").document(thoughtId).collection("comments").document(commentId)
+            .update("text", text)
+            .await()
+    }
+
+    suspend fun deleteComment(thoughtId: String, commentId: String) {
+        if (thoughtId.isBlank() || commentId.isBlank()) return
+        val thoughtRef = db.collection("thoughts").document(thoughtId)
+        val commentRef = thoughtRef.collection("comments").document(commentId)
+        commentRef.delete().await()
+        adjustCommentCount(thoughtId, -1)
     }
 
     suspend fun reportThought(thoughtId: String, reporterUid: String, reason: String) {
@@ -347,6 +406,29 @@ class ThoughtRepository(
                 }
                 val thought = snapshot.toObject(Thought::class.java)?.copy(id = snapshot.id)
                 trySend(thought)
+            }
+        awaitClose { reg.remove() }
+    }
+
+    fun thoughtDetailFlow(thoughtId: String): Flow<ThoughtLoadState> = callbackFlow {
+        if (thoughtId.isBlank()) {
+            trySend(ThoughtLoadState.NotFound)
+            close()
+            return@callbackFlow
+        }
+        trySend(ThoughtLoadState.Loading)
+        val reg = db.collection("thoughts").document(thoughtId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null || !snapshot.exists()) {
+                    trySend(ThoughtLoadState.NotFound)
+                    return@addSnapshotListener
+                }
+                val thought = snapshot.toObject(Thought::class.java)?.copy(id = snapshot.id)
+                if (thought != null) {
+                    trySend(ThoughtLoadState.Ready(thought))
+                } else {
+                    trySend(ThoughtLoadState.NotFound)
+                }
             }
         awaitClose { reg.remove() }
     }
@@ -488,6 +570,30 @@ class ThoughtRepository(
     private fun currentWeekId(): String {
         val cal = Calendar.getInstance()
         return "${cal.get(Calendar.YEAR)}-W${cal.get(Calendar.WEEK_OF_YEAR)}"
+    }
+
+    private fun thoughtToFirestoreMap(thought: Thought): Map<String, Any> {
+        return mapOf(
+            "id" to thought.id,
+            "text" to thought.text,
+            "feelCount" to thought.feelCount,
+            "commentCount" to thought.commentCount,
+            "shareCount" to thought.shareCount,
+            "authorId" to thought.authorId,
+            "authorName" to thought.authorName,
+            "authorPhotoUrl" to thought.authorPhotoUrl,
+            "city" to thought.city,
+            "locality" to thought.locality,
+            "category" to thought.category,
+            "postType" to thought.postType,
+            "trendingRank" to thought.trendingRank,
+            "isSponsored" to thought.isSponsored,
+            "sponsorLabel" to thought.sponsorLabel,
+            "sponsorUrl" to thought.sponsorUrl,
+            "imageUrls" to thought.imageUrls,
+            "imageCount" to thought.imageCount,
+            "createdAt" to thought.createdAt,
+        )
     }
 
     private suspend fun deleteSubcollection(collection: com.google.firebase.firestore.CollectionReference) {

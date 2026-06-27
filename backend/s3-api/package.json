@@ -1,0 +1,13 @@
+{
+  "name": "hoght-s3-api",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "install:prod": "npm install --omit=dev",
+    "zip": "powershell -Command \"Compress-Archive -Path index.js,package.json -DestinationPath function-upload.zip -Force\""
+  },
+  "dependencies": {}
+}

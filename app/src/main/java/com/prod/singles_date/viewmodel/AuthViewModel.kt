@@ -8,9 +8,13 @@ import com.prod.singles_date.model.User
 import com.prod.singles_date.model.AppCity
 import android.content.Context
 import android.net.Uri
+import com.google.firebase.analytics.FirebaseAnalytics
 import com.prod.singles_date.repository.AuthRepository
 import com.prod.singles_date.repository.MediaRepository
 import com.prod.singles_date.repository.ProfileRepository
+import com.prod.singles_date.util.AnalyticsEvents
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,10 +49,12 @@ sealed interface AuthUiEvent {
  * Firebase Auth session + profile. UI observes [session] and triggers actions via methods.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class AuthViewModel(
-    private val authRepository: AuthRepository = AuthRepository(),
-    private val profileRepository: ProfileRepository = ProfileRepository(),
-    private val mediaRepository: MediaRepository = MediaRepository(),
+@HiltViewModel
+class AuthViewModel @Inject constructor(
+    private val authRepository: AuthRepository,
+    private val profileRepository: ProfileRepository,
+    private val mediaRepository: MediaRepository,
+    private val analytics: FirebaseAnalytics,
 ) : ViewModel() {
 
     private val _authMessage = MutableStateFlow("")
@@ -116,7 +122,7 @@ class AuthViewModel(
 
     fun signInWithGoogle(idToken: String) {
         viewModelScope.launch {
-            performAuthAction {
+            performAuthAction(analyticsMethod = "google") {
                 authRepository.signInWithGoogle(idToken)
                 applyPendingReferralIfAny()
             }
@@ -138,7 +144,7 @@ class AuthViewModel(
                 val msg = when ((t as? FirebaseAuthException)?.errorCode) {
                     "ERROR_REQUIRES_RECENT_LOGIN" ->
                         "For security, please enter your password or sign in with Google again to delete your account."
-                    else -> authErrorMessage(t)
+                    else -> humanizeDeleteAccountError(t)
                 }
                 _authMessage.value = msg
                 onDone(false, msg)
@@ -156,11 +162,22 @@ class AuthViewModel(
         }
     }
 
-    fun updateNotificationPrefs(notifyFeels: Boolean, notifyComments: Boolean, notifyPrompts: Boolean) {
+    fun updateNotificationPrefs(
+        notifyFeels: Boolean,
+        notifyComments: Boolean,
+        notifyPrompts: Boolean,
+        notifyMessages: Boolean,
+    ) {
         val uid = firebaseUser.value?.uid ?: authRepository.currentUser()?.uid ?: return
         viewModelScope.launch {
             runCatching {
-                authRepository.updateNotificationPrefs(uid, notifyFeels, notifyComments, notifyPrompts)
+                authRepository.updateNotificationPrefs(
+                    uid,
+                    notifyFeels,
+                    notifyComments,
+                    notifyPrompts,
+                    notifyMessages,
+                )
             }
         }
     }
@@ -181,7 +198,7 @@ class AuthViewModel(
         }
 
         viewModelScope.launch {
-            performAuthAction {
+            performAuthAction(analyticsMethod = "email", isSignUp = true) {
                 authRepository.signUp(name = n, email = e, password = p, city = c)
                 applyPendingReferralIfAny()
             }
@@ -218,7 +235,7 @@ class AuthViewModel(
         }
 
         viewModelScope.launch {
-            performAuthAction {
+            performAuthAction(analyticsMethod = "email") {
                 authRepository.logIn(email = e, password = p)
                 applyPendingReferralIfAny()
             }
@@ -251,19 +268,24 @@ class AuthViewModel(
     }
 
     /** Persist city and locality for a signed-in user. */
-    fun saveOnboarding(city: String, locality: String, onDone: () -> Unit = {}) {
+    fun saveOnboarding(city: String, locality: String, onDone: (Boolean) -> Unit = {}) {
         val uid = firebaseUser.value?.uid ?: authRepository.currentUser()?.uid
         if (uid.isNullOrBlank()) {
-            onDone()
+            onDone(true)
             return
         }
         viewModelScope.launch {
             _isBusy.value = true
-            runCatching {
+            val result = runCatching {
                 authRepository.updateUserOnboarding(uid, city.trim(), locality.trim())
             }
             _isBusy.value = false
-            onDone()
+            if (result.isSuccess) {
+                onDone(true)
+            } else {
+                _authMessage.value = "Couldn't save your city. Check your connection and try again."
+                onDone(false)
+            }
         }
     }
 
@@ -315,11 +337,22 @@ class AuthViewModel(
     /**
      * Shared wrapper for login/signup to reduce boilerplate.
      */
-    private suspend fun performAuthAction(action: suspend () -> Unit) {
+    private suspend fun performAuthAction(
+        analyticsMethod: String? = null,
+        isSignUp: Boolean = false,
+        action: suspend () -> Unit,
+    ) {
         _isBusy.value = true
         _authMessage.value = ""
         try {
             action()
+            analyticsMethod?.let { method ->
+                if (isSignUp) {
+                    AnalyticsEvents.logSignUp(analytics, method)
+                } else {
+                    AnalyticsEvents.logLogin(analytics, method)
+                }
+            }
             _events.send(AuthUiEvent.AuthSuccess)
         } catch (t: Throwable) {
             _authMessage.value = authErrorMessage(t)
@@ -336,16 +369,28 @@ class AuthViewModel(
             "ERROR_INVALID_EMAIL" -> "The email address is badly formatted."
             "ERROR_WRONG_PASSWORD" -> "Invalid password."
             "ERROR_USER_NOT_FOUND" -> "No account found with this email."
-            // Newer FirebaseAuth may use this instead of WRONG_PASSWORD/USER_NOT_FOUND.
             "ERROR_INVALID_LOGIN_CREDENTIALS" -> "Invalid email or password."
-            "ERROR_INVALID_CREDENTIAL" -> "Invalid email or password."
+            "ERROR_INVALID_CREDENTIAL" ->
+                "Google sign-in failed. Update the app from Play Store, or use email sign-in."
             "ERROR_OPERATION_NOT_ALLOWED" -> "Email/Password sign-in is disabled in Firebase Console."
             "ERROR_NETWORK_REQUEST_FAILED" -> "Network error. Check internet and try again."
             "ERROR_EMAIL_ALREADY_IN_USE" -> "This email is already in use."
             "ERROR_WEAK_PASSWORD" -> "The password is too weak."
+            "ERROR_ACCOUNT_EXISTS_WITH_DIFFERENT_CREDENTIAL" ->
+                "This email is already linked to a different sign-in method. Try email/password instead."
             null -> raw ?: "An unexpected error occurred."
-            else -> "$firebaseCode: $raw"
+            else -> raw ?: firebaseCode
         }
+    }
+}
+
+private fun humanizeDeleteAccountError(error: Throwable): String {
+    val msg = error.message.orEmpty().lowercase()
+    return when {
+        msg.contains("permission") ->
+            "Couldn't delete your account data. Update the app and try again, or contact support."
+        else -> error.message?.takeIf { it.isNotBlank() }
+            ?: "Couldn't delete your account. Please try again."
     }
 }
 

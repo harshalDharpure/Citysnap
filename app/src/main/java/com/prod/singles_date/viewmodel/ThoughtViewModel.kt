@@ -2,20 +2,23 @@ package com.prod.singles_date.viewmodel
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.analytics.FirebaseAnalytics
-import com.prod.singles_date.CitysnapApplication
 import com.prod.singles_date.model.AppNotification
 import com.prod.singles_date.model.BlockedUser
 import com.prod.singles_date.model.CityMood
 import com.prod.singles_date.model.PostType
 import com.prod.singles_date.model.Thought
+import com.prod.singles_date.model.ThoughtLoadState
 import com.prod.singles_date.model.Comment
 import com.prod.singles_date.repository.ThoughtRepository
 import com.prod.singles_date.util.AnalyticsEvents
 import com.prod.singles_date.util.FeedRanking
 import com.prod.singles_date.util.FeedSortMode
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -24,16 +27,39 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class ThoughtViewModel(
-    private val repository: ThoughtRepository = ThoughtRepository(),
+@HiltViewModel
+class ThoughtViewModel @Inject constructor(
+    private val repository: ThoughtRepository,
+    private val analytics: FirebaseAnalytics,
 ) : ViewModel() {
+
+    sealed class UiEvent {
+        data class Message(val text: String) : UiEvent()
+        data class Error(val text: String) : UiEvent()
+    }
+
+    private val _uiEvents = Channel<UiEvent>(Channel.BUFFERED)
+    val uiEvents = _uiEvents.receiveAsFlow()
+
+    private suspend fun notifyError(error: Throwable) {
+        _uiEvents.send(UiEvent.Error(humanizePostError(error)))
+    }
+
+    private suspend fun notifyMessage(text: String) {
+        _uiEvents.send(UiEvent.Message(text))
+    }
 
     private val _selectedCity = MutableStateFlow("")
     val selectedCity: StateFlow<String> = _selectedCity.asStateFlow()
@@ -187,13 +213,13 @@ class ThoughtViewModel(
     }
 
     private val _activeDetailThoughtId = MutableStateFlow("")
-    val detailThought: StateFlow<Thought?> =
+    val detailLoadState: StateFlow<ThoughtLoadState> =
         _activeDetailThoughtId
             .flatMapLatest { id ->
-                if (id.isBlank()) kotlinx.coroutines.flow.flowOf(null)
-                else repository.thoughtFlow(id)
+                if (id.isBlank()) kotlinx.coroutines.flow.flowOf(ThoughtLoadState.NotFound)
+                else repository.thoughtDetailFlow(id)
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThoughtLoadState.Loading)
 
     val detailComments: StateFlow<List<Comment>> =
         _activeDetailThoughtId
@@ -214,11 +240,54 @@ class ThoughtViewModel(
     private val _currentUid = MutableStateFlow<String?>(null)
     /** Immediate UI overrides until Firestore listener catches up. */
     private val _feelOverrides = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    /** Optimistic feel/comment count deltas until Firestore catches up. */
+    private val _feelCountAdjustments = MutableStateFlow<Map<String, Int>>(emptyMap())
+    private val _commentCountAdjustments = MutableStateFlow<Map<String, Int>>(emptyMap())
+    private val _feelCountBase = mutableMapOf<String, Int>()
+
+    private val thoughtsWithLiveCounts: StateFlow<List<Thought>> =
+        combine(thoughts, _feelCountAdjustments, _commentCountAdjustments) { list, feelAdj, commentAdj ->
+            list.map { applyCountAdjustments(it, feelAdj, commentAdj) }
+        }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val detailThought: StateFlow<Thought?> =
+        combine(
+            detailLoadState.map { state -> (state as? ThoughtLoadState.Ready)?.thought },
+            _feelCountAdjustments,
+            _commentCountAdjustments,
+        ) { thought, feelAdj, commentAdj ->
+            thought?.let { applyCountAdjustments(it, feelAdj, commentAdj) }
+        }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    init {
+        viewModelScope.launch {
+            thoughts.collect { list ->
+                _feelCountAdjustments.update { adj ->
+                    if (adj.isEmpty()) adj
+                    else adj.filter { (id, delta) ->
+                        val base = _feelCountBase[id]
+                        val server = list.find { it.id == id }?.feelCount
+                        if (base != null && server != null && server >= base + delta) {
+                            _feelCountBase.remove(id)
+                            false
+                        } else {
+                            true
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     fun setCurrentUid(uid: String?) {
         _currentUid.value = uid
         if (uid.isNullOrBlank()) {
             _feelOverrides.value = emptyMap()
+            _feelCountAdjustments.value = emptyMap()
+            _commentCountAdjustments.value = emptyMap()
+            _feelCountBase.clear()
         }
     }
 
@@ -297,18 +366,21 @@ class ThoughtViewModel(
         blockedUids
             .flatMapLatest { uids ->
                 flow {
-                    val list = uids.map { blockedUid ->
-                        val name = runCatching { repository.getUserDisplayName(blockedUid) }
-                            .getOrElse { "User" }
-                        BlockedUser(blockedUid, name)
+                    val list = withContext(Dispatchers.IO) {
+                        uids.map { blockedUid ->
+                            val name = runCatching { repository.getUserDisplayName(blockedUid) }
+                                .getOrElse { "User" }
+                            BlockedUser(blockedUid, name)
+                        }
                     }
                     emit(list)
                 }
             }
+            .flowOn(Dispatchers.IO)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val rankedThoughtsRaw: StateFlow<List<Thought>> =
-        thoughts
+        thoughtsWithLiveCounts
             .combine(hiddenThoughtIds) { thoughtList, hidden ->
                 FeedRankingContext(
                     thoughts = thoughtList,
@@ -369,15 +441,30 @@ class ThoughtViewModel(
         viewModelScope.launch {
             val currentlyFeeled = thoughtId in feeledThoughtIds.value
             val targetFeeled = !currentlyFeeled
+            val delta = if (targetFeeled) 1 else -1
+            val serverFeelCount = thoughts.value.find { it.id == thoughtId }?.feelCount ?: 0
+            _feelCountBase[thoughtId] = serverFeelCount
             _feelOverrides.update { it + (thoughtId to targetFeeled) }
+            _feelCountAdjustments.update { adjustments ->
+                adjustments + (thoughtId to ((adjustments[thoughtId] ?: 0) + delta))
+            }
             runCatching { repository.toggleFeel(thoughtId, uid) }
                 .onSuccess { actualFeeled ->
                     if (actualFeeled != targetFeeled) {
                         _feelOverrides.update { it + (thoughtId to actualFeeled) }
+                        val correction = if (actualFeeled) 1 else -1
+                        _feelCountAdjustments.update { adjustments ->
+                            adjustments + (thoughtId to ((adjustments[thoughtId] ?: 0) - delta + correction))
+                        }
                     }
                 }
-                .onFailure {
+                .onFailure { error ->
+                    Log.e(TAG, "toggleFeel failed thoughtId=$thoughtId", error)
                     _feelOverrides.update { it - thoughtId }
+                    _feelCountAdjustments.update { adjustments ->
+                        adjustments + (thoughtId to ((adjustments[thoughtId] ?: 0) - delta))
+                    }
+                    _feelCountBase.remove(thoughtId)
                 }
         }
     }
@@ -438,8 +525,10 @@ class ThoughtViewModel(
                     context = context,
                     imageUris = imageUris,
                 )
-            }.onSuccess {
-                val analytics = FirebaseAnalytics.getInstance(CitysnapApplication.instance)
+            }.onSuccess { thoughtId ->
+                if (thoughtId.isNotBlank()) {
+                    setPendingOpenPostId(thoughtId)
+                }
                 AnalyticsEvents.logPostCreated(analytics, city, imageUris.isNotEmpty())
             }.onFailure { error ->
                 _postError.value = humanizePostError(error)
@@ -482,35 +571,104 @@ class ThoughtViewModel(
 
     fun deleteThought(thoughtId: String, authorId: String) {
         if (thoughtId.isBlank() || authorId.isBlank()) return
-        viewModelScope.launch { runCatching { repository.deleteThought(thoughtId, authorId) } }
+        viewModelScope.launch {
+            runCatching { repository.deleteThought(thoughtId, authorId) }
+                .onFailure { notifyError(it) }
+        }
     }
 
     fun addComment(thoughtId: String, userId: String, userName: String, rawText: String) {
-        val body = rawText.trim()
+        val body = rawText.trim().take(MAX_COMMENT_LENGTH)
         if (body.isBlank()) return
-        viewModelScope.launch { runCatching { repository.addComment(thoughtId, userId, userName, body) } }
+        viewModelScope.launch {
+            _commentCountAdjustments.update { adjustments ->
+                adjustments + (thoughtId to ((adjustments[thoughtId] ?: 0) + 1))
+            }
+            runCatching { repository.addComment(thoughtId, userId, userName, body) }
+                .onFailure { error ->
+                    _commentCountAdjustments.update { adjustments ->
+                        adjustments + (thoughtId to ((adjustments[thoughtId] ?: 0) - 1))
+                    }
+                    notifyError(error)
+                }
+        }
+    }
+
+    fun updateComment(thoughtId: String, commentId: String, rawText: String) {
+        val body = rawText.trim().take(MAX_COMMENT_LENGTH)
+        if (body.isBlank() || thoughtId.isBlank() || commentId.isBlank()) return
+        viewModelScope.launch {
+            runCatching { repository.updateComment(thoughtId, commentId, body) }
+                .onSuccess { notifyMessage("Comment updated") }
+                .onFailure { notifyError(it) }
+        }
+    }
+
+    fun deleteComment(thoughtId: String, commentId: String) {
+        if (thoughtId.isBlank() || commentId.isBlank()) return
+        viewModelScope.launch {
+            _commentCountAdjustments.update { adjustments ->
+                adjustments + (thoughtId to ((adjustments[thoughtId] ?: 0) - 1))
+            }
+            runCatching { repository.deleteComment(thoughtId, commentId) }
+                .onSuccess { notifyMessage("Comment deleted") }
+                .onFailure { error ->
+                    _commentCountAdjustments.update { adjustments ->
+                        adjustments + (thoughtId to ((adjustments[thoughtId] ?: 0) + 1))
+                    }
+                    notifyError(error)
+                }
+        }
     }
 
     suspend fun fetchUserProfile(uid: String) = repository.getUserProfile(uid)
 
+    private fun applyCountAdjustments(
+        thought: Thought,
+        feelAdj: Map<String, Int>,
+        commentAdj: Map<String, Int>,
+    ): Thought {
+        val feelDelta = feelAdj[thought.id] ?: 0
+        val commentDelta = commentAdj[thought.id] ?: 0
+        if (feelDelta == 0 && commentDelta == 0) return thought
+        return thought.copy(
+            feelCount = (thought.feelCount + feelDelta).coerceAtLeast(0),
+            commentCount = (thought.commentCount + commentDelta).coerceAtLeast(0),
+        )
+    }
+
     companion object {
+        private const val TAG = "ThoughtViewModel"
         const val MAX_THOUGHT_LENGTH = PostType.SNAP_MAX_LENGTH
         const val MAX_NOTE_LENGTH = PostType.NOTE_MAX_LENGTH
+        const val MAX_COMMENT_LENGTH = 500
     }
 }
 
 private fun humanizePostError(error: Throwable): String {
-    val msg = error.message.orEmpty().lowercase()
+    val raw = error.message?.trim().orEmpty()
+    val msg = raw.lowercase()
+    // Prefer the real server/network message so upload issues are diagnosable.
+    if (raw.isNotBlank() &&
+        !msg.contains("category") &&
+        !msg.contains("50 mb") &&
+        !msg.contains("too large") &&
+        !msg.contains("could not read image")
+    ) {
+        return raw
+    }
     return when {
         msg.contains("category") -> "Pick a category for Local Notes."
-        msg.contains("network") || msg.contains("unavailable") || msg.contains("timeout") ->
+        msg.contains("50 mb") || msg.contains("too large") ->
+            "Each photo must be 50 MB or smaller. Remove oversized images and try again."
+        msg.contains("could not read image") ->
+            "Couldn't read one of the photos. Try picking it again from your gallery."
+        msg.contains("network") || msg.contains("unavailable") || msg.contains("timeout") ||
+            msg.contains("unable to resolve host") ->
             "No internet connection. Check your network and try again."
-        msg.contains("storage") || msg.contains("upload") || msg.contains("object") ->
-            "Couldn't upload photos. Try fewer or smaller images, then tap Post again."
-        msg.contains("permission") ->
-            "Permission denied. Sign out and sign back in, then try again."
-        else -> error.message?.takeIf { it.isNotBlank() }
-            ?: "Couldn't post right now. Please try again."
+        msg.contains("permission_denied") || msg.contains("missing or insufficient permissions") ->
+            "Post blocked by Firestore rules. Deploy latest firestore.rules, then try again."
+        else -> raw.ifBlank { "Couldn't post right now. Please try again." }
     }
 }
 

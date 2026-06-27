@@ -1,5 +1,6 @@
 package com.prod.singles_date.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -103,6 +104,8 @@ fun ProfileScreen(
     onOpenPrivacy: () -> Unit,
     onSnap: () -> Unit = {},
     onNavigateHome: () -> Unit = onBack,
+    onOpenMessages: () -> Unit = {},
+    messagesUnreadCount: Int = 0,
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     onThemeModeChange: (ThemeMode) -> Unit = {},
 ) {
@@ -166,6 +169,22 @@ fun ProfileScreen(
     val postStreak = user.postStreak
     val badges = user.badges
 
+    BackHandler(
+        enabled = showDeleteAccount || showEditName || pendingDeleteId != null ||
+            profilePhotoPicker.pickerMessage != null,
+    ) {
+        when {
+            profilePhotoPicker.pickerMessage != null -> profilePhotoPicker.onDismissPickerMessage()
+            showDeleteAccount && !isBusy -> {
+                showDeleteAccount = false
+                deletePassword = ""
+                deleteError = ""
+            }
+            showEditName && !isBusy -> showEditName = false
+            pendingDeleteId != null -> pendingDeleteId = null
+        }
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -214,9 +233,11 @@ fun ProfileScreen(
                 selectedTab = MainTab.Profile,
                 profilePhotoUrl = user.photoUrl,
                 profileName = user.name,
+                messagesUnreadCount = messagesUnreadCount,
                 onTabSelected = { tab ->
                     when (tab) {
                         MainTab.Home -> onNavigateHome()
+                        MainTab.Messages -> onOpenMessages()
                         MainTab.City -> onChangeCity()
                         MainTab.Snap -> onSnap()
                         MainTab.Profile -> Unit

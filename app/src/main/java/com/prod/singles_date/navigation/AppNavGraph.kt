@@ -1,27 +1,33 @@
 package com.prod.singles_date.navigation
 
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import android.widget.Toast
 import com.prod.singles_date.data.LocalPreferences
-import com.prod.singles_date.model.AppLocality
 import com.prod.singles_date.messaging.PendingNotification
 import com.prod.singles_date.model.ThemeMode
 import com.prod.singles_date.ui.screens.BlockedUsersScreen
+import com.prod.singles_date.ui.screens.ChatScreen
 import com.prod.singles_date.ui.screens.CitySelectScreen
 import com.prod.singles_date.ui.screens.FeedScreen
 import com.prod.singles_date.ui.screens.LegalPage
 import com.prod.singles_date.ui.screens.LegalScreen
 import com.prod.singles_date.ui.screens.LoginScreen
+import com.prod.singles_date.ui.screens.MessagesScreen
 import com.prod.singles_date.ui.screens.NotificationInboxScreen
 import com.prod.singles_date.ui.screens.NotificationSettingsScreen
 import com.prod.singles_date.ui.screens.PostDetailScreen
@@ -34,6 +40,7 @@ import com.prod.singles_date.ui.screens.SplashScreen
 import com.prod.singles_date.ui.screens.WelcomeScreen
 import com.prod.singles_date.util.AppLinks
 import com.prod.singles_date.viewmodel.AuthViewModel
+import com.prod.singles_date.viewmodel.ChatViewModel
 import com.prod.singles_date.viewmodel.ProfileViewModel
 import com.prod.singles_date.viewmodel.SessionState
 import com.prod.singles_date.viewmodel.ThoughtViewModel
@@ -52,12 +59,66 @@ fun AppNavGraph(
 ) {
     val owner = LocalContext.current as ComponentActivity
     val context = LocalContext.current
-    val authViewModel: AuthViewModel = viewModel(owner)
-    val thoughtViewModel: ThoughtViewModel = viewModel(owner)
-    val profileViewModel: ProfileViewModel = viewModel(owner)
+    val authViewModel: AuthViewModel = hiltViewModel(owner)
+    val thoughtViewModel: ThoughtViewModel = hiltViewModel(owner)
+    val chatViewModel: ChatViewModel = hiltViewModel(owner)
+    val profileViewModel: ProfileViewModel = hiltViewModel(owner)
     val prefs = remember { LocalPreferences(context) }
 
+    val firebaseUser by authViewModel.firebaseUser.collectAsStateWithLifecycle()
+
+    LaunchedEffect(firebaseUser?.uid) {
+        thoughtViewModel.setCurrentUid(firebaseUser?.uid)
+        chatViewModel.setCurrentUid(firebaseUser?.uid)
+        firebaseUser?.uid?.let { authViewModel.registerPushToken(it) }
+    }
+
+    val messagesUnreadCount by chatViewModel.totalUnreadCount.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) {
+        chatViewModel.error.collect { message ->
+            message?.let {
+                Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+                chatViewModel.clearError()
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        thoughtViewModel.uiEvents.collect { event ->
+            val text = when (event) {
+                is ThoughtViewModel.UiEvent.Message -> event.text
+                is ThoughtViewModel.UiEvent.Error -> event.text
+            }
+            Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     val navController = rememberNavController()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+    var pendingExit by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentRoute) {
+        pendingExit = false
+    }
+
+    BackHandler(enabled = navController.previousBackStackEntry != null) {
+        navController.popBackStack()
+    }
+
+    BackHandler(
+        enabled = navController.previousBackStackEntry == null &&
+            (currentRoute == Routes.Feed || currentRoute == Routes.Welcome),
+    ) {
+        if (pendingExit) {
+            owner.finish()
+        } else {
+            pendingExit = true
+            Toast.makeText(context, "Press back again to exit", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     val pendingOpenPostId by thoughtViewModel.pendingOpenPostId.collectAsStateWithLifecycle()
 
     LaunchedEffect(pendingOpenPostId) {
@@ -71,6 +132,7 @@ fun AppNavGraph(
     LaunchedEffect(pendingNotification) {
         val n = pendingNotification ?: return@LaunchedEffect
         when {
+            n.isMessage -> navController.navigate(Routes.chat(n.conversationId, n.senderId))
             n.isDailyPrompt -> thoughtViewModel.setPendingPostPrompt(n.promptText)
             n.isThoughtDeepLink -> thoughtViewModel.setPendingOpenPostId(n.thoughtId)
             n.type == "locality_topic" && n.promptText.isNotBlank() ->
@@ -95,9 +157,7 @@ fun AppNavGraph(
     }
 
     fun needsOnboarding(city: String, locality: String): Boolean {
-        if (city.isBlank()) return true
-        val requiresLocality = AppLocality.localitiesForCity(city).isNotEmpty()
-        return requiresLocality && locality.isBlank()
+        return city.isBlank()
     }
 
     NavHost(
@@ -213,18 +273,29 @@ fun AppNavGraph(
 
         composable(Routes.CitySelect) {
             val isLoggedIn = authViewModel.isLoggedIn.collectAsStateWithLifecycle().value
-            val isBusy = authViewModel.isBusy.collectAsStateWithLifecycle().value
+            val authMessage by authViewModel.authMessage.collectAsStateWithLifecycle()
+            var isSavingOnboarding by remember { mutableStateOf(false) }
+
+            LaunchedEffect(authMessage) {
+                if (authMessage.isNotBlank()) {
+                    Toast.makeText(context, authMessage, Toast.LENGTH_LONG).show()
+                }
+            }
 
             CitySelectScreen(
-                isBusy = isBusy,
+                isSaving = isSavingOnboarding,
                 onContinue = { city, locality ->
                     prefs.saveGuestOnboarding(city, locality)
                     thoughtViewModel.setSelectedCity(city)
                     thoughtViewModel.setSelectedLocality(locality)
                     if (isLoggedIn) {
-                        authViewModel.saveOnboarding(city, locality) {
-                            navController.navigate(Routes.Feed) {
-                                popUpTo(Routes.CitySelect) { inclusive = true }
+                        isSavingOnboarding = true
+                        authViewModel.saveOnboarding(city, locality) { success ->
+                            isSavingOnboarding = false
+                            if (success) {
+                                navController.navigate(Routes.Feed) {
+                                    popUpTo(Routes.CitySelect) { inclusive = true }
+                                }
                             }
                         }
                     } else {
@@ -279,6 +350,60 @@ fun AppNavGraph(
                 onOpenPost = { thoughtId -> navController.navigate(Routes.postDetail(thoughtId)) },
                 onOpenUserProfile = { uid -> navController.navigate(Routes.userProfile(uid)) },
                 onOpenNotifications = { navController.navigate(Routes.NotificationInbox) },
+                onOpenMessages = { navController.navigate(Routes.Messages) },
+                messagesUnreadCount = messagesUnreadCount,
+            )
+        }
+
+        composable(Routes.Messages) {
+            val profile by authViewModel.currentUser.collectAsStateWithLifecycle()
+            val isLoggedIn = authViewModel.isLoggedIn.collectAsStateWithLifecycle().value
+            val activeCity = profile?.city?.takeIf { it.isNotBlank() } ?: prefs.getGuestCity()
+            MessagesScreen(
+                chatViewModel = chatViewModel,
+                currentUser = profile,
+                isLoggedIn = isLoggedIn,
+                activeCity = activeCity,
+                onOpenChat = { conversationId, otherUid ->
+                    navController.navigate(Routes.chat(conversationId, otherUid))
+                },
+                onOpenProfile = {
+                    if (isLoggedIn) navController.navigate(Routes.Profile)
+                    else navController.navigate(Routes.Login)
+                },
+                onOpenFeed = {
+                    navController.popBackStack(Routes.Feed, inclusive = false)
+                },
+                onChangeCity = { navController.navigate(Routes.CitySelect) },
+                onOpenSnap = {
+                    thoughtViewModel.requestOpenComposer()
+                    navController.popBackStack(Routes.Feed, inclusive = false)
+                },
+                onRequireLogin = { navController.navigate(Routes.Login) },
+            )
+        }
+
+        composable(
+            route = Routes.Chat,
+            arguments = listOf(
+                navArgument("conversationId") { type = NavType.StringType },
+                navArgument("otherUid") { type = NavType.StringType },
+            ),
+        ) { backStackEntry ->
+            val conversationId = backStackEntry.arguments?.getString("conversationId").orEmpty()
+            val otherUid = backStackEntry.arguments?.getString("otherUid").orEmpty()
+            val fu = authViewModel.firebaseUser.collectAsStateWithLifecycle().value
+            ChatScreen(
+                conversationId = conversationId,
+                otherUid = otherUid,
+                currentUid = fu?.uid,
+                chatViewModel = chatViewModel,
+                thoughtViewModel = thoughtViewModel,
+                onBack = {
+                    chatViewModel.clearActiveChat()
+                    navController.popBackStack()
+                },
+                onRequireLogin = { navController.navigate(Routes.Login) },
             )
         }
 
@@ -310,6 +435,13 @@ fun AppNavGraph(
                 activeLocality = activeLocality,
                 onBack = { navController.popBackStack() },
                 onRequireLogin = { navController.navigate(Routes.Login) },
+                onMessageAuthor = if (isLoggedIn && fu != null && user != null) {
+                    { authorId ->
+                        chatViewModel.openChatWith(authorId) { conversationId ->
+                            navController.navigate(Routes.chat(conversationId, authorId))
+                        }
+                    }
+                } else null,
             )
         }
 
@@ -335,8 +467,9 @@ fun AppNavGraph(
                 serverNotifyFeels = profile?.notifyFeels,
                 serverNotifyComments = profile?.notifyComments,
                 serverNotifyPrompts = profile?.notifyPrompts,
-                onUpdatePrefs = { feels, comments, prompts ->
-                    authViewModel.updateNotificationPrefs(feels, comments, prompts)
+                serverNotifyMessages = profile?.notifyMessages,
+                onUpdatePrefs = { feels, comments, prompts, messages ->
+                    authViewModel.updateNotificationPrefs(feels, comments, prompts, messages)
                 },
             )
         }
@@ -387,10 +520,20 @@ fun AppNavGraph(
         ) { backStackEntry ->
             val uid = backStackEntry.arguments?.getString("uid").orEmpty()
             val fu = authViewModel.firebaseUser.collectAsStateWithLifecycle().value
+            var showMessageButton by remember(uid, fu?.uid) { mutableStateOf(false) }
+            LaunchedEffect(uid, fu?.uid) {
+                showMessageButton = fu != null && uid != fu.uid && chatViewModel.canMessage(uid)
+            }
             PublicUserProfileScreen(
                 authorUid = uid,
                 currentUid = fu?.uid,
                 thoughtViewModel = thoughtViewModel,
+                showMessageButton = showMessageButton,
+                onMessage = {
+                    chatViewModel.openChatWith(uid) { conversationId ->
+                        navController.navigate(Routes.chat(conversationId, uid))
+                    }
+                },
                 onBack = { navController.popBackStack() },
                 onOpenPost = { id -> navController.navigate(Routes.postDetail(id)) },
                 onRequireLogin = { navController.navigate(Routes.Login) },
@@ -435,6 +578,8 @@ fun AppNavGraph(
                     navController.popBackStack()
                 },
                 onNavigateHome = { navController.popBackStack() },
+                onOpenMessages = { navController.navigate(Routes.Messages) },
+                messagesUnreadCount = messagesUnreadCount,
                 themeMode = themeMode,
                 onThemeModeChange = onThemeModeChange,
             )
